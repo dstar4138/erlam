@@ -1,0 +1,9 @@
+-- returns the second thing passed (aka false)
+snd a b = b
+-- Spawns process f, and returns the channel C with which it passed to it.
+comm = (fun f. ((fun c. snd (spawn (f c)) c) newchan))
+ret = swap (comm f) 0
+-- spawn two expressions and then merge the first thing recved on their channels
+merge = (fun f. (fun a. (fun b. f (swap (comm a) 0) (swap (comm b) 0))))
+
+
