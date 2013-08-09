@@ -58,4 +58,8 @@ create_integer( [126|R] ) -> % [126] == "~"
 create_integer( X ) -> 
     erlang:list_to_integer(X).
 
-mkname( Line, Chars ) -> {token, {var, Line, erlang:list_to_atom(Chars)}}.
+mkname( Line, Chars ) ->
+    case Chars of
+        "_" -> {token, {var, Line, nil_var}};
+        _ -> {token, {var, Line, erlang:list_to_atom(Chars)}}
+    end.
