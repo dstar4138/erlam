@@ -6,12 +6,12 @@
 Definitions.
 
 % Reserved Keywords %
-If = "if"
-Swap = "swap"
-Spawn = "spawn"
-Fun = "fun"
-Let = "let"
-In  = "in"
+If = if
+Swap = swap
+Spawn = spawn
+Fun = fun
+Let = let
+In  = in
 
 % Reserved Symbols
 OpenParen = \(
@@ -23,6 +23,9 @@ Eq = \=
 % User Data %
 Integer = (~)?[0-9]+
 Name = [A-Za-z\_\+\-\'][A-Za-z0-9\_]*
+
+%% Ignore and trim all whitespace.
+Wsp = \s*
 
 Rules.
 
@@ -38,6 +41,7 @@ Rules.
 {Dot}   : mktoken(op_dot, TokenLine, TokenChars ).
 {Comma} : mktoken(op_comma, TokenLine, TokenChars).
 {Eq}    : mktoken(op_eq, TokenLine, TokenChars ).
+{Wsp}   : skip_token.
 
 % Data %
 {Integer} : mkint( TokenLine, TokenChars ).
