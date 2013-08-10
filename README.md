@@ -57,13 +57,13 @@ Is actually sugar for:
 
     (fun x. E2) E1
 
-And multi variable functions (which can still be curried):
+And multi variable functions (which can still be curried, from left to right):
     
     fun x,y,z. E
 
 Is actually sugar for:
     
-    fun z. (fun y. (fun x. E))
+    fun x. (fun y. (fun z. E))
 
 Both expressions are quickly converted to their non-sugar forms after parsing.
 

@@ -3,6 +3,7 @@
 -record(erlam_app,  {exp1 :: erlam_exp(), exp2 :: erlam_exp()}).
 -record(erlam_if,   {exp :: erlam_exp(), texp :: erlam_exp(), fexp ::erlam_exp()}).
 -record(erlam_swap, {chan :: erlam_chan(), val :: erlam_exp()}).
+-record(erlam_spawn,{exp :: erlam_exp()}).
 -record(erlam_fun,  {var :: erlam_var(), exp :: erlam_exp()}).
 
 %% Absractions on type in case we want to add different Types.
@@ -10,7 +11,11 @@
 -type erlam_app()  :: #erlam_app{}.
 -type erlam_if()   :: #erlam_if{}.
 -type erlam_swap() :: #erlam_swap{}.
+-type erlam_spawn():: #erlam_spawn{}.
 -type erlam_fun()  :: #erlam_fun{}.
+
+%% TODO: Undetermined for now.
+-type erlam_chan() :: {erlam_chan, integer()}.
 
 %% Value is the type of a veriable.
 -type erlam_val() :: integer() 
@@ -25,4 +30,7 @@
                    | erlam_spawn()
                    | erlam_fun().
 
-
+% Special Erlang-Code expressions
+-record(erlam_erl, {func :: fun()}).
+-type erlam_erl() :: #erlam_erl{}.
+-type erlam_ast() :: erlam_exp() | erlam_erl().

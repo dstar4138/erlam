@@ -1,0 +1,7 @@
+{application, erlam,
+ [
+  {description, "Erlang Lambda Calc Compiler"},
+  {vsn, "0.1.0"},
+  {env, []}
+ ]
+}.
