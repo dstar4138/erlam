@@ -20,12 +20,15 @@ Dot = \.
 Comma = \,
 Eq = \=
 
+% C Style Comments.
+Comment = /\*(.|\n|\s|\t|\r)*\*/
+
 % User Data %
 Integer = (~)?[0-9]+
 Name = [A-Za-z\_\+\-\'][A-Za-z0-9\_]*
 
 %% Ignore and trim all whitespace.
-Wsp = \s*
+Wsp = (\s|\t|\n|\r)*
 
 Rules.
 
@@ -42,6 +45,7 @@ Rules.
 {Comma} : mktoken(op_comma, TokenLine, TokenChars).
 {Eq}    : mktoken(op_eq, TokenLine, TokenChars ).
 {Wsp}   : skip_token.
+{Comment} : skip_token.
 
 % Data %
 {Integer} : mkint( TokenLine, TokenChars ).
