@@ -5,11 +5,16 @@
 ERL=$(shell which erl)
 REBAR=$(CURDIR)/bin/rebar
 
-.PHONY: erlam test 
+.PHONY: erlam test clean examples
 
 erlam: 
 	$(REBAR) compile
 
-test:
-	$(REBAR) eunit
+clean:
+	$(REBAR) clean
 
+test:
+	$(REBAR) compile eunit
+
+examples:
+	echo "Not implemented yet."

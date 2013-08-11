@@ -1,3 +1,17 @@
+-- List of useful functions:
+
+    ignore = right = snd -> return the value of the second expression
+    print -> Prints x to stdout, returns x.
+    me -> An integer which represents the current process id.
+    rep -> unwraps an integer into its lambda equivalent (kinda like a for loop)
+    lt, gt, leq, geq, eq -> check if first number is <,>,<=,>=,== to the second.
+    dec, inc -> --,++ an integer.
+    add, sub, max, min, mul, exp -> maths
+    id -> returns x.
+    merge -> sync two spawns and combine with a function.
+    comm -> Wrap a spawn with a channel pass and return the channel
+    ret -> Wrap a comm in a swap call.
+
 -- returns the second thing passed (aka false)
 snd a b = b
 -- Spawns process f, and returns the channel C with which it passed to it.
