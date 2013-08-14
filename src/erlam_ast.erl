@@ -33,13 +33,13 @@ update( Expr ) ->
 % Using erlam_lib, update shorthand expressions such as `id`.
 -spec expand_shorthand( erlam_ast() ) -> erlam_ast().
 expand_shorthand( AST ) -> 
-    F = fun( Var ) -> erlam_lib:shortvar(Var#erlam_var.name) end,
+    F = fun( Var, _ ) -> erlam_lib:shortvar(Var#erlam_var.name) end,
     astloop_repvar( AST, F, []).
 
 % Using erlam_lib, update keyword's with their Erlang based code.
 -spec update_with_library( erlam_ast() ) -> erlam_ast().
 update_with_library( AST ) ->
-    F = fun( Var ) -> erlam_lib:keyvar(Var#erlam_var.name) end,
+    F = fun( Var, Env ) -> erlam_lib:keyvar(Var#erlam_var.name, Env) end,
     astloop_repvar( AST, F, [] ).
 
 
@@ -69,13 +69,13 @@ astloop_repvar( AST, F, I ) when is_tuple( AST ) ->
                                                      )}
     end.
 
+
 % Performs the replacement if varname isn't member of the ignore list.
 % @hidden 
 -spec ignore_vars( erlam_var(), fun(), [atom()]) -> erlam_ast().
 ignore_vars(AST, F, I) ->
     case lists:member(AST#erlam_var.name, I) of
         true -> AST;
-        false -> F(AST)
+        false -> F(AST, I)
     end.
-
 

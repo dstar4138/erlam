@@ -7,6 +7,7 @@ Definitions.
 
 % Reserved Keywords %
 If = if
+NewChan = newchan
 Swap = swap
 Spawn = spawn
 Fun = fun
@@ -34,6 +35,7 @@ Rules.
 
 % Keywords/Symbols %
 {If}    : mktoken( op_if,   TokenLine, TokenChars ).
+{NewChan} : mktoken( op_newchan, TokenLine, TokenChars ).
 {Swap}  : mktoken( op_swap, TokenLine, TokenChars ).
 {Spawn} : mktoken( op_spawn,TokenLine, TokenChars ).
 {Fun}   : mktoken( op_fun,  TokenLine, TokenChars ).
@@ -64,6 +66,6 @@ create_integer( X ) ->
 
 mkname( Line, Chars ) ->
     case Chars of
-        "_" -> {token, {var, Line, nil_var}};
+        "_" -> {token, {nil_var, Line, "_"}};
         _ -> {token, {var, Line, erlang:list_to_atom(Chars)}}
     end.

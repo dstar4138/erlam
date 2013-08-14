@@ -17,4 +17,4 @@ test:
 	$(REBAR) compile eunit
 
 examples:
-	echo "Not implemented yet."
+	@echo "Not implemented yet."

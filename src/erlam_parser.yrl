@@ -8,10 +8,11 @@ Nonterminals
     exprs expr
     varlist
     vars
-    if_expr swap_expr spawn_expr fun_expr let_expr int_expr var_expr.
+    if_expr newchan_expr swap_expr spawn_expr fun_expr let_expr int_expr var_expr.
 
 Terminals
-    op_if 
+    op_if
+    op_newchan 
     op_swap
     op_spawn
     op_fun
@@ -23,7 +24,8 @@ Terminals
     op_comma
     op_eq
     integer
-    var.
+    var
+    nil_var.
 
 Rootsymbol program.
 Endsymbol '$end'.
@@ -38,6 +40,7 @@ exprs -> expr exprs : ['$1'|'$2'].
 
 %% Expression:
 expr -> if_expr     : '$1'.
+expr -> newchan_expr : '$1'.
 expr -> swap_expr   : '$1'.
 expr -> spawn_expr  : '$1'.
 expr -> fun_expr    : '$1'.
@@ -53,6 +56,9 @@ expr -> op_open exprs op_close : flatten_apply('$2').
 % If:
 if_expr -> op_if expr expr expr :
     {erlam_if, '$2', '$3', '$4'}.
+
+% New Channel Call
+newchan_expr -> op_newchan : newchan.
 
 % Swap Channel:
 swap_expr -> op_swap expr expr :
@@ -86,6 +92,7 @@ let_expr -> op_let var_expr op_eq expr op_in expr :
 % Variable & Integer Expressions:
 int_expr -> integer : value_of('$1').
 var_expr -> var : {erlam_var, value_of('$1'), 0}.
+var_expr -> nil_var : nil_var.
 
 Erlang code.
 %%
