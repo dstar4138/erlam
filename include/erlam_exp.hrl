@@ -1,5 +1,5 @@
 % Parsed tokens.
--record(erlam_var,  {name :: atom(), val :: integer()}).
+-record(erlam_var,  {name :: atom()}).
 -record(erlam_app,  {exp1 :: erlam_exp(), exp2 :: erlam_exp()}).
 -record(erlam_if,   {exp :: erlam_exp(), texp :: erlam_exp(), fexp ::erlam_exp()}).
 -record(erlam_swap, {chan :: erlam_chanvar(), val :: erlam_exp()}).
@@ -37,6 +37,6 @@
                    | erlam_newchan().
 
 % Special Erlang-Code expressions
--record(erlam_erl, {func :: string()}).
+-record(erlam_erl, {arity :: integer(), func :: string()}).
 -type erlam_erl() :: #erlam_erl{}.
 -type erlam_ast() :: erlam_exp() | erlam_erl().

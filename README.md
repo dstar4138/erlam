@@ -15,7 +15,7 @@ expression BNF with their explanations:
                  | if E E E      # If clause on natural numbers, true=!0
                  | swap C E      # Blocking Swap on channel C with value E
                  | spawn E       # Spawn process to handle expression E
-                 | fun x.E       # Function Definition (single variable, or _)
+                 | fun x.E       # Function Definition (single variable, or _ to ignore)
                  | newchan       # Generate unique Channel (used in swap)
 
 This is the extent of the language. We will have only a small standard library 

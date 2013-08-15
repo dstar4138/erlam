@@ -45,7 +45,7 @@ file -> library : '$1'.
 file -> program : '$1'.
 
 % A Library is a dictionary of expressions or erlcode 
-library -> op_openlib maps : '$2'.
+library -> op_openlib maps : dict:from_list('$2').
 maps -> map maps : ['$1'|'$2'].
 maps -> op_closelib : [].
 
@@ -53,7 +53,7 @@ maps -> op_closelib : [].
 map -> var_expr op_eq mapexpr : {name_of('$1'), '$3'}.
 mapexpr -> expr op_semi : '$1'.
 mapexpr -> op_erlcode op_obrack integer op_cbrack op_erlblock op_semi : 
-    {erlcode, value_of('$3'), value_of( '$5' )}.
+    {erlam_erl, value_of('$3'), value_of( '$5' )}.
 
 
 % A Program is currently just an Expression:
@@ -116,7 +116,7 @@ let_expr -> op_let var_expr op_eq expr op_in expr :
 
 % Variable & Integer Expressions:
 int_expr -> integer : value_of('$1').
-var_expr -> var : {erlam_var, value_of('$1'), 0}.
+var_expr -> var : {erlam_var, value_of('$1')}.
 var_expr -> nil_var : nil_var.
 
 Erlang code.
