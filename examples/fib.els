@@ -1,0 +1,6 @@
+// Fibonacci -
+//
+//  Find the 5'th number in the Fibonacci sequence using tail recursion.
+(fun n. (rep n) (fun f.
+                (fun a. (fun b. (f b (add a b))))) id 0 1)
+5 

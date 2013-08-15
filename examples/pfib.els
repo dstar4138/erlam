@@ -1,0 +1,9 @@
+// Parallel Fibonacci -
+//
+//  Find the 5'th number in the Fibonacci sequence in a parallel fashion.
+(fun n. (fun r. r r)
+        (fun f. (fun m. if (lt m 2) m (merge (fun _.f f (sub m 1))
+                                             (fun _.f f (sub m 2))
+                                             add)))
+        n)
+5

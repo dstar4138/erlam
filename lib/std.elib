@@ -1,0 +1,144 @@
+// ****************************************************************************
+//                          ErLam Standard library.
+// There are only a few functions, but they should speed things up a bit when
+// writing your own code. Only utilized functions are loaded into the compiled
+// ErLam scripts.
+// ****************************************************************************
+elib
+
+    // Macro that's used quite often 
+    nil = 0;
+
+    // Used to bottom out recursive calls 
+    id = (fun x. x);
+
+    // Evaluate both parameters but drop/ignore the second value 
+    fst = (fun x. (fun y. x));
+    left = (fun x. (fun y. x));
+
+    // Evaluate both parameters but drop/ignore the first value 
+    snd = (fun x. (fun y. y));
+    right = (fun x. (fun y. y));
+    ignore = (fun x. (fun y. y));
+
+    // Wrap the value of the value in a function, then return it by passing nil
+    block = (fun f. (fun _. f));
+    unblock = (fun b. (b 0));
+
+    
+    // Take two functions as parameters and spawn them with channels in parallel
+    // then merge the return values using a third function parameter. 
+    merge = (fun a. (let x = newchan in
+                          ( (fun q. (fun p. p)) (spawn (fun _.swap x (a 0))) )
+                    )
+                    (fun b. (let y = newchan in
+                                ( (fun q. (fun p. p)) (spawn (fun _. swap y (b 0))) )
+                                    (fun m. m (swap x 0) (swap y 0))
+                            )));
+    
+    // Wrap a function call with a channel and a spawn, return the channel.
+    comm = (fun f. (let c = newchan in 
+                        ( (fun x.(fun y. y)) (spawn (fun _. f c)) c)));
+
+    // ----------------------------- KEYWORDS -------------------------------
+    //  The following are dropped in directly verbatim into the generated code.
+    // ----------------------------------------------------------------------
+
+    // Simulate Church Numeral given an Integer. This acts like a for-loop
+    // in ErLam. It will reapply F to its result N times, starting with X
+    rep = _erl[1]{
+            fun(N) when is_integer(N) -> %_START_OF_REP_%
+                fun(F) when is_function(F) ->
+                    fun (X) ->
+                         lists:foldl( fun(A,B) -> erlang:apply(A,[B]) end
+                                      X,
+                                      lists:duplicate(N,F) )
+                    emd
+                emd
+            end %_END_OF_REP_%
+          };
+
+    // Simple Less than or Equal to 
+    leq = _erl[2]{
+            fun(X) when is_integer(X) -> %_START_OF_LEQ_%
+                fun(Y) when is_integer(Y) ->
+                    case X =< Y of true -> 1; false -> 0 end
+                end
+            end %_END_OF_LEQ_%
+          };
+    
+    // Simple Greater than or Equal to 
+    geq = _erl[2]{
+             fun(X) when is_integer(X) -> %_START_OF_GEQ_%
+                fun(Y) when is_integer(Y) ->
+                    case X >= Y of true -> 1; false -> 0 end
+                end
+            end %_END_OF_GEQ_%
+          };
+
+    // Check if two integers are equal 
+    eq = _erl[2]{
+             fun(X) when is_integer(X) ->%_START_OF_EQ_%
+                fun(Y) when is_integer(Y) ->
+                    case X == Y of true -> 1; false -> 0 end
+                end
+            end %_END_OF_EQ_%
+         };
+
+    // Check if first integer is less than second 
+    lt = _erl[2]{
+             fun(X) when is_integer(X) -> %_START_OF_LT_%
+                fun(Y) when is_integer(Y) ->
+                    case X < Y of true -> 1; false -> 0 end
+                end
+            end %_END_OF_LT_%
+         };
+    
+    // Check if first integer is greater than second 
+    gt = _erl[2]{
+             fun(X) when is_integer(X) -> %_START_OF_GT_%
+                fun(Y) when is_integer(Y) ->
+                    case X > Y of true -> 1; false -> 0 end
+                end
+            end %_END_OF_GT_%
+         };
+
+    // Check if one of the two integers is non-zero 
+    or = _erl[2]{ 
+                fun(X) when is_integer(X) -> %_START_OF_OR_%
+                    fun(Y) when is_integer(Y) ->
+                        case X of 0 -> case Y of 0 -> 0; _ -> 1 end);
+                                  _ -> 1
+                        end
+                    end
+                end %_END_OF_OR_%
+         };
+
+    // Check if both integers are non-zero
+    and = _erl[2]{
+                fun(X) when is_integer(X) -> %_START_OF_AND_%
+                    fun(Y) when is_integer(Y) ->
+                        case X of 0 -> 0; 
+                                 _ -> (case Y of 0 -> 0; _ -> 1 end)
+                        end
+                    end
+                end %_END_OF_AND_%
+          };
+    
+    // If zero, return 1. Otherwise return 0.
+    not = _erl[1]{ 
+                fun(X) when is_integer(X) -> %_START_OF_NOT_%
+                    case X of 0 -> 1; _ -> 0 end 
+                end %_END_OF_NOT_%
+          };
+
+    // Use Erlang to print object
+    print = _erl[1]{ fun(X) -> io:format("~p", [X]) end };
+    
+    // Decrement an integer
+    dec = _erl[1]{ fun(X) when is_integer(X) -> X-1 end };
+
+    // Increment an integer 
+    inc = _erl[1]{ fun(X) when is_integer(X) -> X+1 end };
+
+bile

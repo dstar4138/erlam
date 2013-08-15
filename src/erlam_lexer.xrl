@@ -14,15 +14,24 @@ Fun = fun
 Let = let
 In  = in
 
+% Library Keywords %
+OpenLib = elib
+CloseLib = bile
+ErlCode = \_erl
+ErlBlock = {[^}{]*}
+
 % Reserved Symbols
 OpenParen = \(
 CloseParen = \)
 Dot = \.
 Comma = \,
 Eq = \=
+OpenBracket = \[
+CloseBracket = \]
+Semi = \;
 
 % C Style Comments.
-Comment = /\*(.|\n|\s|\t|\r)*\*/
+Comment = //[^\n\r]*
 
 % User Data %
 Integer = (~)?[0-9]+
@@ -41,11 +50,19 @@ Rules.
 {Fun}   : mktoken( op_fun,  TokenLine, TokenChars ).
 {Let}   : mktoken( op_let,  TokenLine, TokenChars ).
 {In}    : mktoken( op_in,   TokenLine, TokenChars ).
+{OpenLib} : mktoken(op_openlib, TokenLine, TokenChars ).
+{CloseLib} : mktoken(op_closelib, TokenLine, TokenChars ).
+{ErlCode} : mktoken(op_erlcode, TokenLine, TokenChars ).
+{ErlBlock} : mktoken(op_erlblock, TokenLine, prune( TokenChars, TokenLen )).
 {OpenParen}  : mktoken( op_open, TokenLine, TokenChars ).
 {CloseParen} : mktoken( op_close, TokenLine, TokenChars ).
 {Dot}   : mktoken(op_dot, TokenLine, TokenChars ).
 {Comma} : mktoken(op_comma, TokenLine, TokenChars).
 {Eq}    : mktoken(op_eq, TokenLine, TokenChars ).
+{OpenBracket} : mktoken( op_obrack, TokenLine, TokenChars ).
+{CloseBracket} : mktoken( op_cbrack, TokenLine, TokenChars ).
+{Semi} : mktoken( op_semi, TokenLine, TokenChars ).
+
 {Wsp}   : skip_token.
 {Comment} : skip_token.
 
@@ -69,3 +86,5 @@ mkname( Line, Chars ) ->
         "_" -> {token, {nil_var, Line, "_"}};
         _ -> {token, {var, Line, erlang:list_to_atom(Chars)}}
     end.
+
+prune( Chars, Len ) -> lists:sublist(Chars, 2, Len-2).

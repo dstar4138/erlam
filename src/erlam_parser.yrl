@@ -4,11 +4,14 @@
 % @author Alexander Dean
 
 Nonterminals
+    file
+    library
     program
     exprs expr
     varlist
     vars
-    if_expr newchan_expr swap_expr spawn_expr fun_expr let_expr int_expr var_expr.
+    if_expr newchan_expr swap_expr spawn_expr fun_expr let_expr int_expr var_expr
+    maps map mapexpr.
 
 Terminals
     op_if
@@ -25,17 +28,39 @@ Terminals
     op_eq
     integer
     var
-    nil_var.
+    nil_var
+    op_openlib
+    op_closelib
+    op_erlcode
+    op_erlblock
+    op_obrack
+    op_cbrack
+    op_semi.
 
-Rootsymbol program.
+Rootsymbol file.
 Endsymbol '$end'.
+
+% A Parsed file is either a library or a program 
+file -> library : '$1'.
+file -> program : '$1'.
+
+% A Library is a dictionary of expressions or erlcode 
+library -> op_openlib maps : '$2'.
+maps -> map maps : ['$1'|'$2'].
+maps -> op_closelib : [].
+
+% Types of mapings are either erlcode or shorthand
+map -> var_expr op_eq mapexpr : {name_of('$1'), '$3'}.
+mapexpr -> expr op_semi : '$1'.
+mapexpr -> op_erlcode op_obrack integer op_cbrack op_erlblock op_semi : 
+    {erlcode, value_of('$3'), value_of( '$5' )}.
+
 
 % A Program is currently just an Expression:
 program -> exprs : flatten_apply( '$1' ).
 
 %% Expression Application
 exprs -> expr : ['$1'].
-%exprs -> op_open exprs op_close : '$2'.
 exprs -> expr exprs : ['$1'|'$2'].
 
 %% Expression:
@@ -104,4 +129,5 @@ flatten_apply( [E] ) -> E;
 flatten_apply( [A,B|R] ) ->
     flatten_apply( [ {erlam_app, A, B} | R] ).
     
+name_of( Token ) -> element(2, Token).
 value_of( Token ) -> element(3, Token).
