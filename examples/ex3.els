@@ -1,0 +1,2 @@
+// Easy example 3
+(fun x. x) 3

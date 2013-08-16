@@ -21,7 +21,7 @@ to_erl( nil_var, _ ) -> "_";
 to_erl( #erlam_var{ name=X }, Vs ) -> 
     case dict:find( X, Vs ) of
         {ok, Val} -> Val;
-        error -> ?ERROR("Translation","unknown var: ~p",[X])
+        error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
     end;
 to_erl( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) -> 
     ?build("erlang:apply(~s,[~s])",[to_erl(E1,Vs), to_erl(E2,Vs)]);

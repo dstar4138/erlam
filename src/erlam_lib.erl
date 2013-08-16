@@ -90,6 +90,8 @@ replace_vars( E=#erlam_var{name=Var}, Lib, Ignore, _ ) ->
         true -> E;
         false -> (case dict:find(Var, Lib) of error -> E; {ok, V} -> V end)
     end;
+replace_vars( #erlam_fun{var=nil_var,exp=E}, L,I,C ) ->
+    #erlam_fun{var=nil_var,exp=replace_vars(E,L,I,C)};
 replace_vars( F=#erlam_fun{var=Var,exp=E}, L,I,C ) ->
     V = Var#erlam_var.name,
     case dict:is_key(V,L) of

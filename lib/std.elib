@@ -29,16 +29,19 @@ elib
     // Take two functions as parameters and spawn them with channels in parallel
     // then merge the return values using a third function parameter. 
     merge = (fun a. (let x = newchan in
-                          ( (fun q. (fun p. p)) (spawn (fun _.swap x (a 0))) )
+                         ( 
+                            ( (fun q. (fun p. p)) (spawn (fun _.swap x (a 0))) )
+                            (fun b. (let y = newchan in
+                                (( (fun q. (fun p. p)) (spawn (fun _. swap y (b 0))) )
+                                    (fun m. ((m (swap x 0)) (swap y 0))))
+                            ))
+                         )
                     )
-                    (fun b. (let y = newchan in
-                                ( (fun q. (fun p. p)) (spawn (fun _. swap y (b 0))) )
-                                    (fun m. m (swap x 0) (swap y 0))
-                            )));
+            );
     
     // Wrap a function call with a channel and a spawn, return the channel.
     comm = (fun f. (let c = newchan in 
-                        ( (fun x.(fun y. y)) (spawn (fun _. f c)) c)));
+                        ( (fun x.(fun y. y)) (spawn (fun _. (f c))) c)));
 
     // ----------------------------- KEYWORDS -------------------------------
     //  The following are dropped in directly verbatim into the generated code.
@@ -50,11 +53,11 @@ elib
             fun(N) when is_integer(N) -> %_START_OF_REP_%
                 fun(F) when is_function(F) ->
                     fun (X) ->
-                         lists:foldl( fun(A,B) -> erlang:apply(A,[B]) end
+                         lists:foldl( fun(A,B) -> erlang:apply(A,[B]) end,
                                       X,
                                       lists:duplicate(N,F) )
-                    emd
-                emd
+                    end
+                end
             end %_END_OF_REP_%
           };
 
@@ -140,5 +143,23 @@ elib
 
     // Increment an integer 
     inc = _erl[1]{ fun(X) when is_integer(X) -> X+1 end };
+
+    // Add two numbers together
+    add = _erl[2]{
+            fun(X) when is_integer(X) ->
+                fun(Y) when is_integer(Y) ->
+                    X + Y
+                end
+            end
+          };
+
+    // Subtract two numbers 
+    sub = _erl[2]{
+            fun(X) when is_integer(X) ->
+                fun(Y) when is_integer(Y) ->
+                    X - Y
+                end
+            end
+          };
 
 bile
