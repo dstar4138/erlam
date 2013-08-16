@@ -7,7 +7,7 @@
 -include("erlam_exp.hrl").
 
 % Cleans up some things.
--define(build(S,P], io_lib:format(S,P)).
+-define(build(S,P), io_lib:format(S,P)).
 
 %% Translate an AST into Erlang Source code.
 -spec to_erl( erlam_ast() ) -> string().
@@ -16,7 +16,7 @@ to_erl( AST ) ->
     to_erl( AST, dict:new() ).
 
 to_erl( N, _ ) when is_integer( N ) -> erlang:integer_to_list(N);
-to_erl( newchan, _ ) -> "get_new_chan( C )";
+to_erl( newchan, _ ) -> "erlam_chan:get_new_chan()";
 to_erl( nil_var, _ ) -> "_";
 to_erl( #erlam_var{ name=X }, Vs ) -> 
     case dict:find( X, Vs ) of
@@ -30,11 +30,11 @@ to_erl( #erlam_if{ exp=Pred, texp=True, fexp=False }, Vs ) ->
                                                     to_erl(True,Vs),
                                                     to_erl(False,Vs)]);
 to_erl( #erlam_swap{ chan=C, val=V }, Vs ) ->
-    ?build("swap( ~s, ~s)",[to_erl(C,Vs), to_erl(V,Vs)]);
+    ?build("erlam_chan:swap( ~s, ~s)",[to_erl(C,Vs), to_erl(V,Vs)]);
 to_erl( #erlam_chan{ chan=N }, _ ) -> 
     ?build("{chan, ~s}", [erlang:integer_to_list(N)]);
 to_erl( #erlam_spawn{ exp=E }, Vs ) ->
-    ?build("safe_spawn( ~s )", [to_erl(E,Vs)]);
+    ?build("erlam_rts:safe_spawn( ~s )", [to_erl(E,Vs)]);
 to_erl( #erlam_fun{var=V, exp=E}, Vs ) ->
     {ok, X, NVars} = gen_new_var(V,Vs),
     ?build("fun( ~s ) -> (~s) end",[ X, to_erl( E, NVars ) ]);
