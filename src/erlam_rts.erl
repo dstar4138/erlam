@@ -21,4 +21,4 @@ breakdown() ->
 %% Message scheduling system with new process.
 -spec safe_spawn( fun() ) -> integer().
 safe_spawn( Fun ) -> 
-    erlang:spawn( Fun ), 1. %TODO: Need to send to scheduling, not erl spawn.
+    erlang:spawn( erlang, apply, [Fun,[0]] ), 1. %TODO: Need to send to scheduling, not erl spawn.

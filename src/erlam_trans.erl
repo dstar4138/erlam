@@ -7,7 +7,7 @@
 -include("erlam_exp.hrl").
 
 % Cleans up some things.
--define(build(S,P), io_lib:format(S,P)).
+-define(build(S), lists:concat(S)).
 
 %% Translate an AST into Erlang Source code.
 -spec to_erl( erlam_ast() ) -> string().
@@ -24,20 +24,18 @@ to_erl( #erlam_var{ name=X }, Vs ) ->
         error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
     end;
 to_erl( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) -> 
-    ?build("erlang:apply(~s,[~s])",[to_erl(E1,Vs), to_erl(E2,Vs)]);
-to_erl( #erlam_if{ exp=Pred, texp=True, fexp=False }, Vs ) ->
-    ?build("case (~s) of 0 -> (~s); _ -> (~s) end",[to_erl(Pred,Vs),
-                                                    to_erl(True,Vs),
-                                                    to_erl(False,Vs)]);
+    ?build(["erlang:apply(",to_erl(E1,Vs), ",[", to_erl(E2,Vs),"])"]);
+to_erl( #erlam_if{ exp=Pred, texp=T, fexp=F }, Vs ) ->
+    ?build(["case (",to_erl(Pred,Vs),") of 0 -> (",to_erl(T,Vs),"); _ -> (",to_erl(F,Vs),") end"]);
 to_erl( #erlam_swap{ chan=C, val=V }, Vs ) ->
-    ?build("erlam_chan:swap( ~s, ~s)",[to_erl(C,Vs), to_erl(V,Vs)]);
+    ?build(["erlam_chan:swap(",to_erl(C,Vs),",", to_erl(V,Vs),")"]);
 to_erl( #erlam_chan{ chan=N }, _ ) -> 
-    ?build("{chan, ~s}", [erlang:integer_to_list(N)]);
+    ?build(["{chan, ", erlang:integer_to_list(N),"}"]);
 to_erl( #erlam_spawn{ exp=E }, Vs ) ->
-    ?build("erlam_rts:safe_spawn( ~s )", [to_erl(E,Vs)]);
+    ?build(["erlam_rts:safe_spawn(", to_erl(E,Vs), ")"]);
 to_erl( #erlam_fun{var=V, exp=E}, Vs ) ->
     {ok, X, NVars} = gen_new_var(V,Vs),
-    ?build("fun( ~s ) -> (~s) end",[ X, to_erl( E, NVars ) ]);
+    ?build(["fun(",X," ) -> (",to_erl(E,NVars),") end"]);
 to_erl( #erlam_erl{ func=F }, _ ) -> F.
 
 
@@ -49,6 +47,6 @@ to_erl( #erlam_erl{ func=F }, _ ) -> F.
 -spec gen_new_var( erlam_var(), dict() ) -> {ok, string(), dict()}.
 gen_new_var( nil_var, Vars ) -> {ok, "_", Vars};
 gen_new_var( #erlam_var{name=V}, Vars ) ->
-    X = ?build("I_~s",[erlang:atom_to_list(V)]),
+    X = ?build(["I_",erlang:atom_to_list(V)]),
     {ok, X, dict:store(V,X,Vars)}.
 

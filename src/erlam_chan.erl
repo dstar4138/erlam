@@ -18,7 +18,11 @@
          terminate/2,
          code_change/3]).
 
+%% Private
+-export([handler/2]).
+
 -record(chan,{id :: integer()}).
+-record(state,{curid :: integer(), open_chan :: dict()}).
 
 %%%===================================================================
 %%% API
@@ -38,7 +42,7 @@ get_new_chan() -> gen_server:call(?MODULE, get_new_chan).
 
 %% @doc Given a channel, hang until another process swaps with you.
 -spec swap( #chan{}, erlam_val() ) -> erlam_val().
-swap( Chan, Val ) -> gen_server:call(?MODULE, {swap, Chan, Val}).
+swap( Chan, Val ) -> gen_server:call(?MODULE, {swap, Chan, Val}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -46,17 +50,20 @@ swap( Chan, Val ) -> gen_server:call(?MODULE, {swap, Chan, Val}).
 
 %% @private
 %% @doc Initializes the server
-init([]) -> {ok, {2, dict:new()}}.
+init([]) -> {ok, #state{curid=0, open_chan=dict:new()}}.
 
 %% @private
 %% @doc Handling synch call messages
-handle_call(get_new_chan, _From, {CurId, Vals}) ->
-    {reply, #chan{id=CurId}, {CurId+1, Vals}};
-handle_call({swap, #chan{id=ID}, Val}, From, {CurId, Vals}) ->
+handle_call(get_new_chan, _From, S=#state{curid=I}) ->
+    {reply, #chan{id=I}, S#state{curid=I+1}};
+handle_call({swap, #chan{id=ID}, Val}, From, S=#state{open_chan=Vals}) ->
     case dict:is_key(ID,Vals) of
-        true -> dict:fetch(ID,Vals)!{swap,From,Val}, 
-                {noreply,{CurId,dict:erase(ID,Vals)}};
-        false -> {noreply, dict:append(ID,spawn_handler( From, Val ),Vals)}
+        true -> 
+            dict:fetch(ID,Vals)!{swap,From,Val}, 
+            {noreply, S#state{open_chan=dict:erase(ID,Vals)}};
+        false -> 
+            NewHandler = spawn_handler(From, Val), 
+            {noreply,S#state{open_chan=dict:store(ID,NewHandler,Vals)}}
     end;
 handle_call(Request, _From, State) ->
     ?ERROR("Channel","Unknown Call: ~p",[Request]), {reply, ok, State}.
@@ -88,7 +95,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%% Internal functions
 %%%===================================================================
 spawn_handler( FromPid, FirstVal ) ->
-    spawn_link( fun handler/2, [FromPid, FirstVal]).
+    spawn( erlam_chan, handler, [FromPid, FirstVal]).
 handler( From, Val ) ->
     receive
         {swap,Other,OVal} ->

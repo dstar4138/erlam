@@ -45,7 +45,7 @@ wrap_user_code( Module, Code ) ->
     io_lib:format( 
         string:join(["-module(~s).",
                      "-export([main/1]).",
-                     "main(_)->"
+                     "main(_)->",
                      "erlam_rts:setup([]),",
                      "X = ~s,",
                      "erlam_rts:breakdown(),",

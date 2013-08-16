@@ -8,40 +8,50 @@ elib
 
     // Macro that's used quite often 
     nil = 0;
+    success = 1;
+
+    // Booleans
+    true = 1;
+    false = 0;
 
     // Used to bottom out recursive calls 
-    id = (fun x. x);
+    id = (fun x.x);
 
     // Evaluate both parameters but drop/ignore the second value 
-    fst = (fun x. (fun y. x));
-    left = (fun x. (fun y. x));
+    fst = fun x.(fun y. x);
+    left = fun x.(fun y. x);
 
     // Evaluate both parameters but drop/ignore the first value 
-    snd = (fun x. (fun y. y));
-    right = (fun x. (fun y. y));
-    ignore = (fun x. (fun y. y));
+    snd = fun x.(fun y. y);
+    right = fun x.(fun y. y);
+    ignore = fun x.(fun y. y);
 
     // Wrap the value of the value in a function, then return it by passing nil
-    block = (fun f. (fun _. f));
-    unblock = (fun b. (b 0));
+    block = fun f.(fun _. f);
+    unblock = fun b.(b 0);
 
+    // Weave an argument behind the next
+    weave = fun x.(fun y.(y x));
     
     // Take two functions as parameters and spawn them with channels in parallel
     // then merge the return values using a third function parameter. 
-    merge = (fun a. (let x = newchan in
-                         ( 
-                            ( (fun q. (fun p. p)) (spawn (fun _.swap x (a 0))) )
-                            (fun b. (let y = newchan in
-                                (( (fun q. (fun p. p)) (spawn (fun _. swap y (b 0))) )
-                                    (fun m. ((m (swap x 0)) (swap y 0))))
+    merge = fun a. let x = newchan in (
+                          (fun q.(fun p. p))
+                          (spawn (fun _.swap x (a 0)))
+                          (fun b. let y = newchan in (
+                                 (fun q. (fun p. p)) 
+                                 (spawn (fun _. swap y (b 0)))
+                                 (fun m.(m (swap x 0) (swap y 0)))
                             ))
-                         )
-                    )
-            );
+                         
+                   );
     
     // Wrap a function call with a channel and a spawn, return the channel.
-    comm = (fun f. (let c = newchan in 
-                        ( (fun x.(fun y. y)) (spawn (fun _. (f c))) c)));
+    comm = fun f. let c = newchan in ( 
+                     (fun x.(fun y. y)) 
+                     (spawn (fun _. (f c))) 
+                     c
+                  );
 
     // ----------------------------- KEYWORDS -------------------------------
     //  The following are dropped in directly verbatim into the generated code.
