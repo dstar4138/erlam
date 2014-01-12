@@ -20,26 +20,19 @@ expression BNF with their explanations:
 
 This is the extent of the language. We will have only a small standard library 
 of internal functions that can be used to simplify some things like math, IO,
-and common functional techniques. Check the `doc/` directory for the time being
-for example functions.
+and common functional techniques.
 
 ### Syntactic Sugar
 
 I would like to add two forms of syntactic sugar though, `let` expressions:
 
     let x = E1 in E2
-
-Is actually sugar for:
-
-    (fun x. E2) E1
+        := (fun x. E2) E1
 
 And multi variable functions (which can still be curried, from left to right):
     
     fun x,y,z. E
-
-Is actually sugar for:
-    
-    fun x. (fun y. (fun z. E))
+        := fun x. (fun y. (fun z. E))
 
 Both expressions are quickly converted to their non-sugar forms during parsing.
 
