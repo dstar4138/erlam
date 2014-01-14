@@ -33,6 +33,19 @@ elib
     // Weave an argument behind the next
     weave = fun x.(fun y.(y x));
     
+    // Apply a function to itself, this is an Omega combinator
+    omega = (fun x.(x x));
+   
+    // Commonly accepted names of Fixed-point combinators
+    I = (fun x. x);
+    K = (fun x.(fun y. x));
+    S = (fun x.(fun y.(fun z.(x z (y z)))));
+    B = (fun x.(fun y.(fun z.(x (y z)))));
+    C = (fun x.(fun y.(fun z.(x z y))));
+    W = (fun x.(fun y.(x y y)));
+    U = (fun x.(x x));
+    Y = (fun g.((fun x.(g (x x))) (fun x.(g (x x)))));
+ 
     // Take two functions as parameters and spawn them with channels in parallel
     // then merge the return values using a third function parameter. 
     merge = fun a. let x = newchan in (
@@ -59,17 +72,8 @@ elib
 
     // Simulate Church Numeral given an Integer. This acts like a for-loop
     // in ErLam. It will reapply F to its result N times, starting with X
-    rep = _erl[1]{
-            fun(N) when is_integer(N) -> %_START_OF_REP_%
-                fun(F) when is_function(F) ->
-                    fun (X) ->
-                         lists:foldl( fun(A,B) -> erlang:apply(A,[B]) end,
-                                      X,
-                                      lists:duplicate(N,F) )
-                    end
-                end
-            end %_END_OF_REP_%
-          };
+    rep = _erl[1]{ fun(N) -> erlam_util:church(N) end };
+    unrep = _erl[1]{ fun(F) -> erlam_util:unchurch(F) end };
 
     // Simple Less than or Equal to 
     leq = _erl[2]{
@@ -146,7 +150,8 @@ elib
           };
 
     // Use Erlang to print object
-    print = _erl[1]{ fun(X) -> io:format("~p", [X]) end };
+    print = _erl[1]{ fun(X) -> io:format("~p", [X]), X end };
+    printl = _erl[1]{ fun(X) -> io:format("~p~n", [X]), X end };
     
     // Decrement an integer
     dec = _erl[1]{ fun(X) when is_integer(X) -> X-1 end };
@@ -172,4 +177,54 @@ elib
             end
           };
 
+    // Multiply two numbers
+    mul = _erl[2]{
+            fun(X) when is_integer(X) ->
+                fun(Y) when is_integer(Y) ->
+                    X * Y
+                end
+            end
+          };
+
+    // Divide two numbers
+    div = _erl[2]{
+            fun(X) when is_integer(X) ->
+                fun(Y) when is_integer(Y) ->
+                    X div Y
+                end
+            end
+          };
+
+    // Find the remainder (modulo)
+    mod = _erl[2]{
+            fun(X) when is_integer(X) ->
+                fun(Y) when is_integer(Y) ->
+                    X rem Y
+                end
+            end
+          };
+
+    // Hang (sleep) for X seconds
+    hang = _erl[1]{
+                fun(X) when is_integer(X) ->
+                    erlam_util:hang(X)
+                end
+            };
+
+
+/// NON DETERMINISTIC SECTION, THESE WILL REMOVE THE DERTERMINISTIC GAURANTEES.
+
+    // Generate a random number from 1 to X inclusive
+    rand = _erl[1]{
+                fun(X) when is_integer(X) ->
+                    random:uniform( X ) 
+                end
+           };
+
+    // Hang (sleep) for random number of seconds from 1 to X inclusive
+    rhang = _erl[1]{
+                fun(X) when is_integer(X) ->
+                    erlam_util:hang( random:uniform(X) )
+                end
+            };
 bile
