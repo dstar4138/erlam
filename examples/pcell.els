@@ -1,0 +1,38 @@
+// Parallel Cell Access/Update Example
+//    Spawns several processess which will operate on a shared cell. This Cell
+//    has several operations which can be performed.
+
+let update = fun y,x.y   in let // Cell Msg 1: Update the Cell's value.
+    access = fun x.x     in let // Cell Msg 2: Read the Cell's value
+    c      = newchan     in let // The Cell's Channel 
+    random_access = true in let // if false, base w/r on even-ness of worker id
+    num_workers = 5      in let // Number of workers to run
+    work_loop = 10              // Number of times a worker accesses shared cell
+
+// The Integer Cell which runs as it's own process:
+in let cell_loop = fun _.(omega fun f,val.(
+            let run = (swap c nil)  in 
+            let newval = (run val)  in
+            let _ = (swap c newval) in
+                 (f f newval)) 
+            nil) // Initialize 'val'
+
+// The Worker Process keeps count of it's accesses and can either randomly
+// or be given a particular type of access (read/write = access/update).
+in let worker = fun myid,_.(omega fun f,count.(
+            let r = (rand 100) in
+            let check = if random_access (eq 1 (rand 2)) (eq 1 (mod myid 2) in)
+            let myfun = if check (update r) access in 
+            let oldval = (swap c myfun) in
+            let newval = (swap c nil) in
+            let _ = (print newval) 
+                in (f f (dec count)))
+            work_loop) // Initialize 'count'
+
+// Give the spawned worker a 'unique' ID.
+in let spawn_worker = fun _.(spawn (worker (rand 1000)))
+
+// Spawn the Cell then spawn 'num_workers' of workers. 
+in (ignore (spawn cell_loop) (rep num_workers spawn_worker nil))
+            
+     

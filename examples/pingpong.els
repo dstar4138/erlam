@@ -1,0 +1,19 @@
+// Ping Pong Example
+//   Creates two processes and ping pongs a message back and forth. This can
+//   demonstraight equal channel usage via mutal exclusion.
+
+fun n.(
+    let c = newchan in
+        let server = (fun _.(omega fun s. 
+                                    let r = (swap c nil) in
+                                    let dead = (eq r nil)
+                                    let _ = if dead false (ignore (rhang 10) (swap c r))
+                                    in (if dead (print ~1) (ignore (print r) (s nil)))))
+        in let worker = fun t,_.
+                (omega (fun w,x.(if (leq x 0)
+                                    (swap c nil) 
+                                    (let _ =(swap c x) in
+                                     (ignore (swap c nil) (w w (dec x))))
+                                )) t)
+        in (ignore (spawn server) (spawn (worker n))))
+100

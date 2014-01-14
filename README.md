@@ -64,46 +64,72 @@ run an example (e.g. fibonacci) like so:
 
 What better way to explain a language than to provide some examples. The 
 following are a few popular examples to demo ErLam. (Note the canonical hello
-world is not possible as this language does not have strings.)
+world is not possible as this language does not have strings.) For more examples
+including the ones below, check out the `examples` directory.
 
 #### Example program: Fibonacci
 
 Not parallelized, but a simple Fibonacci function with continuation.
 
-    (fun n. (rep n) (fun f.
-                (fun a. (fun b. (f b (add a b))))) id 0 1)     
+    fun n. (rep n (fun f,a,b.(f b (add a b))) left 0 1)
 
-To parallelize, it's a bit more difficult as we need to synchronize using 
+Where the `rep` function takes an integer and returns the Church Numeral 
+function for it. In otherwords, replicate the function call `n` times.
+
+To then parallelize, it's a bit more difficult as we need to synchronize using 
 channels. The following function spawns two new sub-processes for both numbers
 and then waits for their return:
 
-    (fun n. (fun r. r r)
-            (fun f. (fun m. if (lt m 2) m (merge (fun _.f f (sub m 1))
-                                                 (fun _.f f (sub m 2))
-                                                 add)))
-            n)
+    (fun n.( fun x.(x x)
+             (fun f,m. 
+                  if (lt m 1) 
+                     m
+                     (merge fun _.(f f (sub m 1))
+                            fun _.(f f (sub m 2))
+                            add)
+             n)
 
 Here we use the merge function, which spawns the last two functions as separate
 processes and then merges their return values via the provided `add` function.
 As we can't directly access an evaluated spawned process, `merge` wraps the call 
 in a channel. Here's the `merge` function:
 
-    (fun a. 
-        (fun x. (ignore (spawn (fun _.swap x (eval a))))
-                (fun b. 
-                        (fun y. (ignore (spawn (fun _. swap y (eval b))))
-                                (fun m. m (swap x nil) (swap y nil))
-                        ) newchan)
-        ) newchan)
-        
-#### Example program: Sieve of Eratosthenes
+    fun a. let x = newchan 
+           in (
+                (fun q,p. p)
+                (spawn (fun _.swap x (a nil)))
+                (fun b. let y = newchan 
+                        in (
+                             (fun q. (fun p. p)) 
+                             (spawn (fun _. swap y (b nil)))
+                             (fun m. (m (swap x nil) (swap y nil)))
+                            )))
 
-This is a popular example to find the n'th prime number. The following example
-works by generating a server with filter processes which determine if a number
-is prime or not.
+Note we start the first process as soon as we get it and will spawn it off until
+we hit the merge point.
+       
 
--- TODO --
+#### Example program: Ping-Pong Servers
 
+Another common example is a ping-pong server, where a client and server pass
+a message back and forth. Note that ErLam uses swap channels so we force mutal
+exclusion:
 
+    fun n.(
+        let c = newchan in
+        let server = (fun _.(omega fun s. 
+                                    let r = (swap c nil) in
+                                     (if (eq r nil) 
+                                         (print ~1) 
+                                         (ignore (print r) (s nil))))) in
+        let worker = fun t,_.(omega (fun w,x.
+                            (if (leq x 0)
+                                (swap c nil) 
+                                (ignore (swap c x) (w w (dec x))))) t)
+        in (ignore (spawn server) (spawn (worker n))))
+    100
 
+This will spawn a worker which will communicate with the server 100 times before
+closing the channel. The example can be modified to wait a random number of 
+seconds before sending back a message (as in the `examples` directory).
 

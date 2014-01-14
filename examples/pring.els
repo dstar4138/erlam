@@ -1,0 +1,36 @@
+// Ring network
+//      Each Node is a new process which passess the token to it's left
+//      until it's seen the kill token. 
+
+let token = 1        in let
+    kill_token = 2   in let
+    ring_size = 10   in let
+    loop_count = 5   
+
+// An individual node in the ring. 
+in let node = fun rside,l,_.(omega fun f,lside.(
+             let recv = (swap rside nil) in
+             let dead = (eq kill_token recv) in
+             let _ = (swap lside recv) in
+                 if dead (printl 1) (f f lside)) l)
+
+// Parent node which will count the loops.
+in let pnode = fun rside,lside,_.(omega fun f,c.(
+             let recv = (swap rside, nil) in
+             let dead = (eq c loop_count)
+             let _ = (swap lside (if dead kill_token recv)) in
+                 if dead (printl 1) (f f (inc c))) 0)
+
+// Spawns a new node with a channel and returns it's left side channel.
+in let spawnnode = fun rside.(
+        let lside = newchan in
+            (ignore (spawn (node rside lside)) lside))
+
+// Starts generating the ring and connects the last two. Then triggers the 
+// ring to start passing.
+in let parent = fun _.
+        let mychan = newchan in
+        let last_chan = (rep ring_size spawnnode mychan) in
+        let _ = (spawn (pnode last_chan mychan)) in 
+            (swap mychan token)
+             

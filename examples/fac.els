@@ -1,0 +1,3 @@
+// Finding the Factorial of a number
+//  This example finds 4!
+fun n.(omega fun f,m. if (leq m 0) 1 (mul m (f f (dec m))) n) 4
