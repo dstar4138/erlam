@@ -60,8 +60,8 @@ mapexpr -> op_erlcode op_obrack integer op_cbrack op_erlblock op_semi :
 program -> exprs : flatten_apply( '$1' ).
 
 %% Expression Application
-exprs -> expr : ['$1'].
 exprs -> expr exprs : ['$1'|'$2'].
+exprs -> expr : ['$1'].
 
 %% Expression:
 expr -> if_expr     : '$1'.
