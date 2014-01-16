@@ -5,11 +5,11 @@
 %%
 
 -module(erlam_interp).
--export([shell/0]).
+-export([shell/1]).
 
 -export([interpret/2, run_erl/1, fun_wrap/1]).
 
-shell() ->
+shell( _Opts ) ->
     erlam_chan:start(),
     cmdline( erlam_lib:inter_update([]) ).
 stop_shell()->

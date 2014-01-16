@@ -1,0 +1,27 @@
+#!/usr/bin/env escript
+%% DO NOT HAND RUN THIS, IT WILL BE CALLED BY REBAR!
+
+%% Compile Step => Generate headers and then create the runner script.
+main(_) ->
+    {ok, CURDIR} = file:get_cwd(),
+    generate_headers( CURDIR ),
+    generate_driver( CURDIR ).
+
+
+%% Currently only header needed is 'gen_lib.hrl', which specifies the
+%% location of the standard library in 'CURDIR/lib'.
+generate_headers( CURDIR ) ->
+    generate_lib_header(CURDIR).
+
+generate_lib_header( CURDIR ) ->
+    Contents = "-define(LIB,\""++CURDIR++"/lib/std.elib\").",
+    file:write_file( CURDIR++"/include/gen_lib.hrl", Contents ).
+
+
+%% The Driver application can be symlinked but needs to have an absolute
+%% path to the ebin directory.
+generate_driver( CURDIR ) ->
+    Contents = "#!/usr/bin/env escript\n" ++
+               "%%! -pa "++CURDIR++"/ebin -smp\n"++
+               "main(A) -> erlam:main(A).\n",
+    file:write_file(CURDIR++"/bin/els", Contents).

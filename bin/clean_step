@@ -1,0 +1,30 @@
+#!/usr/bin/env escript
+%% DO NOT HAND RUN THIS, IT WILL BE CALLED BY REBAR!
+
+%% Clean Step => Remove the generated headers and the runner script.
+main(_) ->
+    {ok, CURDIR} = file:get_cwd(),
+    remove_headers( CURDIR ),
+    remove_driver( CURDIR ).
+
+
+%% Remove the Generated Headers such as the STD Library reference.
+remove_headers( CURDIR ) ->
+    remove_lib_header( CURDIR ).
+
+remove_lib_header( CURDIR ) ->
+    delete_file(CURDIR++"/include/gen_lib.hrl").
+
+
+%% Remove the Driver application (cleaning could mean moving dir location).
+remove_driver( CURDIR ) ->
+    delete_file(CURDIR++"bin/els").
+
+       
+%% Deletes a file and masks the Missing File error.
+delete_file(File)
+    case file:delete(File) of
+        ok -> ok;
+        {error, enoent} -> ok;
+        Error -> Error
+    end.

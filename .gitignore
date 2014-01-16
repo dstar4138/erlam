@@ -1,0 +1,8 @@
+\.*
+erlam_parser.erl
+erlam_lexer.erl
+ebin
+doc
+*.dump
+include/gen_*.hrl
+bin/els
