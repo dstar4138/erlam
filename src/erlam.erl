@@ -51,7 +51,8 @@ check_options( Files, Opts ) -> {Files, Opts}.
 %% @private
 %% @doc Enter the erlam shell.
 shell( Cfgs ) -> 
-    io:put_chars("Now entering ErLam Shell\n"),
+    io:put_chars("Now entering ErLam Shell!\n" ++
+                 "Use ^D to quit.\n"),
     erlam_interp:shell( Cfgs ).
 
 %% @private

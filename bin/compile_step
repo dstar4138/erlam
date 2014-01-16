@@ -14,7 +14,7 @@ generate_headers( CURDIR ) ->
     generate_lib_header(CURDIR).
 
 generate_lib_header( CURDIR ) ->
-    Contents = "-define(LIB,\""++CURDIR++"/lib/std.elib\").",
+    Contents = "-define(LIB,[\""++CURDIR++"/lib/std.elib\"]).",
     file:write_file( CURDIR++"/include/gen_lib.hrl", Contents ).
 
 
