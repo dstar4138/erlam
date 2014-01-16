@@ -9,6 +9,7 @@ REBAR=$(CURDIR)/bin/rebar
 
 erlam: 
 	$(REBAR) compile
+	-chmod +x bin/els
 
 clean:
 	$(REBAR) clean
