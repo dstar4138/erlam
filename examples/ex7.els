@@ -1,0 +1,4 @@
+// Easy channel test 7
+let c = newchan in 
+let f = fun _.(swap c 7) in
+    (ignore (spawn f) (swap c 2))

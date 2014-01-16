@@ -1,0 +1,2 @@
+// Grouping example: Correct result = 6
+fun x. add 5 4 2

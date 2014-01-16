@@ -1,2 +1,2 @@
 // Easy example 4
-ignore id 4
+(fun x. x) 4

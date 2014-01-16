@@ -1,2 +1,2 @@
-// Grouping example: Correct result = 5
-fun x. add 4 3 2
+// Easy example 5
+ignore id 5
