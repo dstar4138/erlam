@@ -22,7 +22,7 @@ remove_driver( CURDIR ) ->
 
        
 %% Deletes a file and masks the Missing File error.
-delete_file(File)
+delete_file(File) ->
     case file:delete(File) of
         ok -> ok;
         {error, enoent} -> ok;
