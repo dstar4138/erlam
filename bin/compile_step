@@ -8,14 +8,19 @@ main(_) ->
     generate_driver( CURDIR ).
 
 
-%% Currently only header needed is 'gen_lib.hrl', which specifies the
-%% location of the standard library in 'CURDIR/lib'.
+%% Generates headers so the source can reference the internal library location
+%% as well as the ErLam Standard Library.
 generate_headers( CURDIR ) ->
-    generate_lib_header(CURDIR).
+    generate_lib_header(CURDIR),
+    generate_ebin_header(CURDIR).
 
 generate_lib_header( CURDIR ) ->
     Contents = "-define(LIB,[\""++CURDIR++"/lib/std.elib\"]).",
     file:write_file( CURDIR++"/include/gen_lib.hrl", Contents ).
+
+generate_ebin_header( CURDIR ) ->
+    Contents = "-define(EBIN_DIR,[\""++CURDIR++"/ebin\"]).",
+    file:write_file(CURDIR++"/include/gen_ebin.hrl", Contents ).
 
 
 %% The Driver application can be symlinked but needs to have an absolute
