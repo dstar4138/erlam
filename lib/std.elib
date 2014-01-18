@@ -18,13 +18,13 @@ elib
     id = (fun x.x);
 
     // Evaluate both parameters but drop/ignore the second value 
-    fst = fun x.(fun y. x);
-    left = fun x.(fun y. x);
+    fst = fun x.(fun _. x);
+    left = fun x.(fun _. x);
 
     // Evaluate both parameters but drop/ignore the first value 
-    snd = fun x.(fun y. y);
-    right = fun x.(fun y. y);
-    ignore = fun x.(fun y. y);
+    snd = fun _.(fun y. y);
+    right = fun _.(fun y. y);
+    ignore = fun _.(fun y. y);
 
     // Wrap the value of the value in a function, then return it by passing nil
     block = fun f.(fun _. f);
@@ -38,7 +38,7 @@ elib
    
     // Commonly accepted names of Fixed-point combinators
     I = (fun x. x);
-    K = (fun x.(fun y. x));
+    K = (fun x.(fun _. x));
     S = (fun x.(fun y.(fun z.(x z (y z)))));
     B = (fun x.(fun y.(fun z.(x (y z)))));
     C = (fun x.(fun y.(fun z.(x z y))));
@@ -49,10 +49,10 @@ elib
     // Take two functions as parameters and spawn them with channels in parallel
     // then merge the return values using a third function parameter. 
     merge = fun a. let x = newchan in (
-                          (fun q.(fun p. p))
+                          (fun _.(fun p. p))
                           (spawn (fun _.swap x (a 0)))
                           (fun b. let y = newchan in (
-                                 (fun q. (fun p. p)) 
+                                 (fun _. (fun p. p)) 
                                  (spawn (fun _. swap y (b 0)))
                                  (fun m.(m (swap x 0) (swap y 0)))
                             ))
@@ -61,7 +61,7 @@ elib
     
     // Wrap a function call with a channel and a spawn, return the channel.
     comm = fun f. let c = newchan in ( 
-                     (fun x.(fun y. y)) 
+                     (fun _.(fun y. y)) 
                      (spawn (fun _. (f c))) 
                      c
                   );
