@@ -122,14 +122,17 @@ exclusion:
                                      (if (eq r nil) 
                                          (print ~1) 
                                          (ignore (print r) (s nil))))) in
-        let worker = fun t,_.(omega (fun w,x.
+        let worker = fun t.(omega (fun w,x.
                             (if (leq x 0)
                                 (swap c nil) 
                                 (ignore (swap c x) (w w (dec x))))) t)
-        in (ignore (spawn server) (spawn (worker n))))
+        in (ignore (spawn server) (worker n)))
     100
 
-This will spawn a worker which will communicate with the server 100 times before
-closing the channel. The example can be modified to wait a random number of 
-seconds before sending back a message (as in the `examples` directory).
+This will run a worker which will communicate with the spawned server 100 times 
+before closing the channel. The example can be modified to wait a random number 
+of seconds before sending back a message (as in the `examples` directory).
+
+Note that the `omega` function is the shorthand for the application function 
+used in the Fibonacci example: `fun x.(x x)`.
 
