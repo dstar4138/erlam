@@ -84,7 +84,7 @@ elib
 
     // Type check the value to see if it's a channel.
     is_chan = _erl[1]{ fun(C) ->
-                         case C of {chan,_} -> 1; _ -> 0 end
+                         case erlam_chan:valid(C) of true -> 1; _ -> 0 end
                        end
                      };
 
@@ -249,5 +249,4 @@ elib
                     erlam_util:hang( random:uniform(X) )
                 end
             };
-
 bile

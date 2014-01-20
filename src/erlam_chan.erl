@@ -8,7 +8,7 @@
 -include("erlam_exp.hrl").
 
 %% API
--export([start/0, stop/0,get_new_chan/0,swap/2]).
+-export([start/0, stop/0,get_new_chan/0,swap/2,valid/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -43,6 +43,11 @@ get_new_chan() -> gen_server:call(?MODULE, get_new_chan).
 %% @doc Given a channel, hang until another process swaps with you.
 -spec swap( #chan{}, erlam_val() ) -> erlam_val().
 swap( Chan, Val ) -> gen_server:call(?MODULE, {swap, Chan, Val}, infinity).
+
+%% @doc Checks to make sure it is a valid 
+-spec valid( term() ) -> boolean().
+valid( Chan ) when is_record( Chan, chan ) -> true;
+valid( _ ) -> false.
 
 %%%===================================================================
 %%% gen_server callbacks
