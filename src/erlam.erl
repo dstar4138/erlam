@@ -88,6 +88,6 @@ pbuild( Opts ) ->
 %% @doc Pretty prints the options for intermediate forms.
 pm(Name, Options) -> 
     case orddict:fetch(Name, Options) of
-        true  -> "-"; false -> "+"
+        true  -> "+"; false -> "-"
     end.
 

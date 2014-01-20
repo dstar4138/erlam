@@ -83,7 +83,7 @@ to_beam( AST, Options ) ->
 to_escript( AST, Options ) ->
     {ok, Erl} = to_erl(AST, []),
     Source = wrap_for_source( Erl, Options ),
-    Sections = [shebang, comment, {emu_args, "+nowarn_unused_vars +nowarn_shadow_vars -pa "++?EBIN_DIR}, 
+    Sections = [shebang, comment, {emu_args, "-pa "++?EBIN_DIR}, 
                 {source, list_to_binary(Source)}],
     case orddict:find( path, Options ) of
         error -> % Just Returning, So give back Contents.
