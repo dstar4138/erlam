@@ -104,10 +104,14 @@ to_forms( #erlam_erl{ func=F }, Line, _ ) ->
 %% Private Functions
 %% ==========================================================================
 
-% Generates a new variable for each one it comes across.
+%% @hidden
+%% @doc Generates a new variable for each one it comes across.
 -spec gen_new_var( erlam_var(), dict() ) -> {ok, string(), dict()}.
 gen_new_var( nil_var, Vars ) -> {ok, "_", Vars};
 gen_new_var( #erlam_var{name=V}, Vars ) ->
-    X = ?build(["I_",erlang:atom_to_list(V)]),
+    X = case dict:find(V, Vars) of
+            error -> ?build(["I_",erlang:atom_to_list(V)]);
+            {ok, Name} -> ?build([Name,"_u"])
+        end,
     {ok, X, dict:store(V,X,Vars)}.
-
+    
