@@ -70,6 +70,24 @@ elib
     //  The following are dropped in directly verbatim into the generated code.
     // ----------------------------------------------------------------------
 
+    // Type check the value to see if it's a number.
+    is_num = _erl[1]{ fun(N) ->
+                        case is_number(N) of true -> 1; _ -> 0 end
+                      end
+                    };
+
+    // Type check the value to see if it's a function.
+    is_fun = _erl[1]{ fun(F) ->
+                        case is_function(F) of true -> 1; _ -> 0 end
+                      end
+                    };
+
+    // Type check the value to see if it's a channel.
+    is_chan = _erl[1]{ fun(C) ->
+                         case C of {chan,_} -> 1; _ -> 0 end
+                       end
+                     };
+
     // Simulate Church Numeral given an Integer. This acts like a for-loop
     // in ErLam. It will reapply F to its result N times, starting with X
     rep = _erl[1]{ fun(N) -> erlam_util:church(N) end };
@@ -123,10 +141,12 @@ elib
     // Check if one of the two integers is non-zero 
     or = _erl[2]{ 
                 fun(X) when is_integer(X) -> %_START_OF_OR_%
-                    fun(Y) when is_integer(Y) ->
-                        case X of 0 -> case Y of 0 -> 0; _ -> 1 end);
-                                  _ -> 1
-                        end
+                    case X of
+                        0 ->
+                            fun(Y) when is_integer(Y) ->
+                                case Y of 0 -> 0; _ -> 1 end
+                            end;
+                        _ -> fun(_) -> 1 end
                     end
                 end %_END_OF_OR_%
          };
@@ -134,10 +154,12 @@ elib
     // Check if both integers are non-zero
     and = _erl[2]{
                 fun(X) when is_integer(X) -> %_START_OF_AND_%
-                    fun(Y) when is_integer(Y) ->
-                        case X of 0 -> 0; 
-                                 _ -> (case Y of 0 -> 0; _ -> 1 end)
-                        end
+                    case X of
+                         0 -> fun(_) -> 0 end;
+                         _ ->
+                              fun(Y) when is_integer(Y) ->
+                                  case Y of 0 -> 0; _ -> 1 end
+                              end
                     end
                 end %_END_OF_AND_%
           };
@@ -227,4 +249,5 @@ elib
                     erlam_util:hang( random:uniform(X) )
                 end
             };
+
 bile
