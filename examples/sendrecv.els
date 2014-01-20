@@ -1,0 +1,60 @@
+///
+/// A Send/Recv Socket implementation using Swap Channels
+///
+///  This is extremely inefficient in that it will (if it fails) keep retrying
+///  until it successfully receives or sends. 
+
+// Utility Tuple encodings (Church List Encoding)
+let pair = fun x,y,z.(z x y) in
+let head = fun p.(p fst)     in
+let tail = fun p.(p snd)     in
+
+// A socket is a group channel which takes an action, if the action performs
+// successfully (correct send/recv), it will return a pair (Result, Socket).
+// Otherwise, it will retry to run the action on the socket. Failure means two
+// senders swapped values (or two receivers).
+let sock = fun group_channel.(
+                let action = (fun p.
+                                let mymsg   = (head p)                   in
+                                let test    = (tail p)                   in
+                                let res     = (swap group_channel mymsg) in
+                                let code    = (head res)                 in
+                                let return  = (tail res)                 in
+                                let success = if (eq code test) SUCCESS FAILURE
+                                   in (pair success return))
+                in
+                    (omega fun f,passer.(
+                        let result  = (action passer group_channel)
+                        let success = (head result) in
+                        let return  = (tail result) in
+                        (if success (pair return f) 
+                                (ignore (rhang 2) //failure, so random hang
+                                        (f f action)))
+                    )))
+in
+
+// SOCKET CODES: these let the other end of the socket know what they are trying
+// to do, and to ignore them if they are not looking for a recvr or sendr.
+let MSG_RECV = 9090 in
+let MSG_SEND = 9091 in
+let SUCCESS  = true in
+let FAILURE  = false in
+
+// To Recv successfully on a socket, entails posting a recv message on the
+// group channel, if the individual that swaps the recv message did so poorly,
+// it will need to respond on the private channel that it was an error.
+let recv = fun sock.(
+                let passer = (pair (pair MSG_RECV nil) MSG_SEND)
+                in (sock passer)
+            )
+in
+
+let send = fun val,sock.(
+                let passer = (pair (pair MSG_SEND val) MSG_RECV)
+                in (sock passer)
+           )
+in
+
+/// -------------------------------------------------------------------------
+
+(print 1) // TODO: Implement something cool with them 
