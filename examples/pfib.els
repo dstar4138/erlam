@@ -5,10 +5,10 @@
 //    this is obviously not optimal, but it suffices for example sake.
 fun n.(omega
          (fun f,m. 
-                if (lt m 1) 
+                if (leq m 1) 
                     m
                     (merge fun _.(f f (sub m 1))
                            fun _.(f f (sub m 2))
-                           add)
+                           add))
         n)
 10
