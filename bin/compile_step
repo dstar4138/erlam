@@ -26,7 +26,16 @@ generate_ebin_header( CURDIR ) ->
 %% The Driver application can be symlinked but needs to have an absolute
 %% path to the ebin directory.
 generate_driver( CURDIR ) ->
-    Contents = "#!/usr/bin/env escript\n" ++
+    EnvOrWrap = get_runner(),
+    Contents = "#!"++EnvOrWrap++" escript\n" ++
                "%%! -pa "++CURDIR++"/ebin -smp\n"++
                "main(A) -> erlam:main(A).\n",
     file:write_file(CURDIR++"/bin/els", Contents).
+
+%% Checks if rlwrap is installed, if it is, then provide that as a wrapper
+%% around shell calls to give history options.
+get_runner() ->
+    case os:cmd("which rlwrap") of
+        []   -> "/usr/bin/env";
+        Path -> string:strip(Path,right,$\n)
+    end.
