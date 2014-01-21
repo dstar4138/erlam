@@ -33,7 +33,7 @@ interpret( StringContents, Lib ) ->
     AST = Lib( ExprTree ), 
     UserCode = erlam_trans:to_erl(AST),
     X = fun_wrap(UserCode),
-    io:format("~p~n",[X]),%Debug, but also interesting
+%    io:format("~p~n",[X]),%Debug, but also interesting
     run_erl( X ).
 
 run_erl( Code ) ->

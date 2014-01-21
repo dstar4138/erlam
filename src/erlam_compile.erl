@@ -42,10 +42,7 @@ file( Path, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_forms( AST, Options ) ->
-    Line = case orddict:find( line, Options ) of
-        {ok, L} -> L; _ -> 0
-    end,
-    case erlam_trans:to_forms( AST, Line ) of
+    case erlam_trans:to_forms( AST ) of
         {ok, Forms} -> save_or_return( Forms, fun t2s/1, ".forms", Options );
         Err -> reportize( "Compiling Abstract Forms Failed", Err )
     end.
@@ -56,7 +53,7 @@ to_forms( AST, Options ) ->
 %% @end  
 to_erl( AST, Options ) ->
     Source = erlam_trans:to_erl( AST ),
-    ID = fun(X)-> wrap_for_source(X, Options) end,
+    ID = fun(X)-> inject_module( wrap_for_source(X), Options ) end,
     save_or_return(Source, ID, ".erl", Options). 
 
 %% @doc Takes an internal AST and converts it to an Erlang BEAM Module. If the
@@ -65,10 +62,10 @@ to_erl( AST, Options ) ->
 %% @end  
 to_beam( AST, Options ) ->
     {ok, Forms} = to_forms( AST, [] ),
-    ID = fun(_X)-> % Intentional Ignore, we don't care about the partial BEAM.
-            compile:forms( wrap_for_module(Forms, Options) )
-         end, 
-    case compile:forms( Forms ) of
+    ModForms = wrap_for_module(Forms, Options),
+    io:format("~p~n",[ModForms]),
+    ID = fun(X)-> X end,
+    case compile:forms( ModForms, [binary, return] ) of
         {ok, _ModuleName, Binary, _Warn} -> 
             save_or_return( Binary, ID, ".beam", Options );
         {ok, _ModuleName, Binary} ->
@@ -82,16 +79,16 @@ to_beam( AST, Options ) ->
 %% @end  
 to_escript( AST, Options ) ->
     {ok, Erl} = to_erl(AST, []),
-    Source = wrap_for_source( Erl, Options ),
+    Source = wrap_for_source( Erl ),
     Sections = [shebang, comment, {emu_args, "-pa "++?EBIN_DIR}, 
                 {source, list_to_binary(Source)}],
     case orddict:find( path, Options ) of
         error -> % Just Returning, So give back Contents.
             {ok, Source};
         {ok, Path} -> % Saving
-            Save = determine_path( Path, "" ),
+            Save = determine_path( Path, ".ex" ),
             escript:create( Save, Sections ),
-            "Successful save of "++Save++"\n"
+            "Successful save of: "++Save++"\n"
     end.
 
 
@@ -128,23 +125,29 @@ extract_code( StringContents ) ->
 %%   report for displaying to the programmer.
 %% @end  
 reportize( Msg, {ok, _} ) -> io_lib:format("Success: ~s~n",[Msg]);
-reportize( Msg, {error, E} ) -> io_lib:format("Error: ~s -> ~p~n",[Msg,E]).
+reportize( Msg, error ) -> io_lib:format("Error: ~s~n", [Msg]);
+reportize( Msg, {error, E} ) -> io_lib:format("Error: ~s -> ~p~n",[Msg,E]);
+reportize( Msg, {error, E, _} ) -> io_lib:format("Error: ~s -> ~p~n",[Msg,E]).
 
 %% @hidden
 %% @doc Push all lines of the report to the terminal.
 display_report( [], _ ) -> ok;
-display_report([L|R], Opts) -> % TODO: Check verbosity options
-    io:put_chars(L), display_report(R,Opts).
+display_report([Report|R], Opts) -> % TODO: Check verbosity options
+    lists:map( fun (ok)->ok;
+                   (L)->io:put_chars(L) 
+               end,
+               Report ),
+    display_report(R,Opts).
 
 %% @hidden
 %% @doc Based on the options we can generate a BEAM, Erl Source, Erl Abstract
 %%   Forms, and a standalone Escript.
 %% @end  
 push_to_files( AST, Options ) ->
-  check_then_run( to_forms, Options, AST ),
-  check_then_run( to_erl, Options, AST ),
-  check_then_run( to_beam, Options, AST ),
-  check_then_run( to_escript, Options, AST).
+  [ check_then_run( to_forms, Options, AST ),
+    check_then_run( to_erl, Options, AST ),
+    check_then_run( to_beam, Options, AST ),
+    check_then_run( to_escript, Options, AST) ].
 
 %% @hidden 
 %% @doc Checks if a certain conversion function is needed and then applys it to 
@@ -166,10 +169,10 @@ save_or_return( Contents, Conv, Ext, Opts ) ->
     case orddict:find( path, Opts ) of
         error -> % Just Returning, So give back Contents.
             {ok, Contents};
-        {ok, Path} -> % Saving
+        {ok, Path} -> % Saving, so return report string.
             Save_Path = determine_path( Path, Ext ),
             (case file:write_file( Save_Path, Conv( Contents ) ) of
-                ok -> "Successful save of: "++Save_Path;
+                ok -> "Successful save of: "++Save_Path++"\n";
                 Err -> reportize("Problem saving: "++Save_Path, Err)
             end)
     end.
@@ -182,23 +185,37 @@ determine_module( Path ) -> filename:rootname(filename:basename(Path)).
 %% @hidden
 %% @doc Wraps Erlang AbsForms with the neccessary boilerplate to be a module.
 wrap_for_module( Forms, Options ) -> 
-    ModuleName = determine_module( orddict:fetch( path, Options ) ),
-    FileName = ModuleName ++".erl",
-    [{attribute,1,file,{FileName,1}}, % Arbitrary Line numbers, this is bad.
-     {attribute,1,module,ModuleName},
-     {attribute,2,export,[{main,1}]},
-     build_main_fun( Forms ),
-     {eof,19}].
+    ModuleName = list_to_atom(determine_module( orddict:fetch( path, Options ) )),
+    AbsForms = [
+        erl_syntax:attribute( erl_syntax:atom(module),
+                                             [erl_syntax:atom(ModuleName)]),
+        erl_syntax:attribute( erl_syntax:atom(export),
+                                             [erl_syntax:list([
+                                                 erl_syntax:arity_qualifier( 
+                                                    erl_syntax:atom(main),
+                                                    erl_syntax:integer(1))])]),
+        build_main_fun( Forms )],
+    lists:map( fun erl_syntax:revert/1, AbsForms ).
+
+
+%% @hidden
+%% @doc Injects the module information in front of the source.
+inject_module( Erl, Options ) ->
+    ModuleName = determine_module( orddict:fetch(path, Options) ),
+    lists:flatten([
+        "-module(", ModuleName, ").\n",
+        "-export([main/1]).\n",
+        Erl]).
 
 %% @hidden
 %% @doc Wrap the erlang source to match the above wrap_for_module/2. 
-wrap_for_source( Erl, _Options ) ->
+wrap_for_source( Erl ) ->
     lists:flatten([
-        "main(Args) when is_list(Args)->",
-        "erlam_rts:setup(Args),",
-        "X = ", Erl, ",",
-        "erlam_rts:breakdown(),",
-        "io:format(\"Res: ~p~n\",[X])."]).
+       "main(Args) when is_list(Args)->\n",
+        "erlam_rts:setup(Args),\n",
+        "X = ", Erl, ",\n",
+        "erlam_rts:breakdown(),\n",
+        "io:format(\"Res: ~p~n\",[X]).\n"]).
 
 %% @hidden
 %% @doc Wraps our forms in a main function that is essentially the following:
@@ -206,67 +223,16 @@ wrap_for_source( Erl, _Options ) ->
 %%              erlam_rts:setup(CArgs), X=Forms, erlam_rts:breakdown(), X.
 %%      '''
 build_main_fun( Forms ) ->
-    Line = 1, % TODO: Find a way to make this dynamic.
-    {function,Line,main,1,[{clause,Line,[{var,Line,'CArgs'}],[],[
-        {call,Line,{remote,Line,{atom,Line,erlam_rts},
-                                {atom,Line,setup}},
-                                [{var,Line,'CArgs'}]},
-        {match,Line, {var,Line,'X'}, Forms},
-        {call,Line,{remote,Line,{atom,Line,erlam_rts},{atom,Line,breakdown}},[]},
-        {call,Line,{remote,Line,{atom,Line,io},{atom,Line,format}},[
-                        {string,Line,"Res: ~p~n"},{cons,Line,{var,Line,'X'},
-                                                             {nil,Line}}]}]}]}.
+    Setup = erl_syntax:application( erl_syntax:atom( erlam_rts ),
+                                    erl_syntax:atom( setup ),
+                                    [erl_syntax:variable('CArgs')] ),
+    Set = erl_syntax:match_expr( erl_syntax:variable('X'), 
+                                 Forms ),
+    BreakDown = erl_syntax:application( erl_syntax:atom( erlam_rts ),
+                                        erl_syntax:atom( breakdown ),
+                                        [] ),
+    Return = erl_syntax:variable('X'),
+    Clause = erl_syntax:clause([ erl_syntax:variable('CArgs') ], [],
+                               [ Setup, Set, BreakDown, Return ] ),
+    erl_syntax:function( erl_syntax:atom( main ), [ Clause ] ).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%push_code( Type, Path, UserCode ) ->
-%    {ok, BasePath, ModName} = get_path_info( Path ),
-%    {ok, FilePath, _Source} = build_user_module( Type, BasePath, ModName, UserCode ),
-%    build_executable( FilePath ).
-%
-%get_path_info( Path ) ->
-%    BasePath = filename:dirname( Path ),
-%    ModName  = strip_ext(filename:basename( Path )),
-%    {ok, BasePath, ModName}.
-%strip_ext( Path ) -> lists:takewhile( fun (C) -> C /= $. end, Path ).
-%
-%% Creates the file ModName.erl where ModName.els was the source file
-%% used when called compile_file/1.
-%build_user_module( Type, BasePath, ModName, UserCode ) ->
-%    FilePath = string:join([BasePath,ModName],"/"),
-%    Source = wrap_user_code(Type, ModName, UserCode),
-%    case Type of erlang ->
-%                    file:write_file(string:concat(FilePath,".erl"),Source);
-%                 escript ->
-%                    file:write_file(FilePath,Source)
-%    end,            
-%    {ok, FilePath, Source}.
-%        
-%% Combines the rts,chan, and UserCode modules together into an archive escript.
-%build_executable(_Path) -> ok.
-%
-%wrap_user_code( erlang, Module, Code ) ->
-%    io_lib:format( 
-%        string:join(["-module(~s).",
-%                     "-export([main/1]).",
-%                     "main(Args) when is_list(Args)->",
-%                     "erlam_rts:setup(Args),",
-%                     "X = ~s,",
-%                     "erlam_rts:breakdown(),",
-%                     "X."],"~n"),
-%                  [Module,Code]);
-%
-%wrap_user_code( escript, Module, Code ) ->
-%    io_lib:format(
-%        string:join(["#!/usr/bin/env escript",
-%                     "%% -*- erlang -*-",
-%                     "%%! -smp enable -sname ~s",
-%                     "main(Args) ->",
-%                     "erlam_rts:setup(Args),",
-%                     "X = ~s,",
-%                     "erlam_rts:breakdown(),",
-%                     "X."],"~n"),
-%        [Module, Code]).
-%
-%getType( _Configs ) -> escript.
-%

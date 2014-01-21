@@ -5,7 +5,7 @@
 %% has the most likely chance of changing over time.
 %%
 -module(erlam_rts).
--export([setup/1,breakdown/0,safe_spawn/1]).
+-export([setup/1,breakdown/0,safe_spawn/1,application/2]).
 
 
 %% Start up the channel server and scheduling system.
@@ -22,3 +22,8 @@ breakdown() ->
 -spec safe_spawn( fun() ) -> integer().
 safe_spawn( Fun ) -> 
     erlang:spawn( erlang, apply, [Fun,[0]] ), 1. %TODO: Need to send to scheduling, not erl spawn.
+
+%% Processess a function application through the loaded scheduler.
+-spec application( fun(), any() ) -> any().
+application( Fun, Val ) ->
+    erlang:apply( Fun, [Val] ).

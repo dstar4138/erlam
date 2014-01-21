@@ -2,13 +2,12 @@
 %% Translating AST to Erlang source code.
 %% 
 -module(erlam_trans).
--export([to_erl/1, to_forms/2]).
+-export([to_erl/1, to_forms/1]).
 -include("debug.hrl").
 -include("erlam_exp.hrl").
 
 % Cleans up some things.
 -define(build(S), lists:concat(S)).
--define(list(Line,Item), {cons,Line,Item,{nil,Line}}).
 -define(error(Line, ErrMsg), {call, Line, {remote,Line, {atom,Line,erlang},
                                                         {atom,Line,error},
                                                         [ErrMsg]}}).
@@ -49,54 +48,64 @@ to_erl( #erlam_erl{ func=F }, _ ) -> F.
 %% @doc Converts the Erlam AST into the internal Erlang Abstract Form. This 
 %%   Can later be used to look closer at the CORE Erlang and to compile from.
 %% @end  
--spec to_forms( erlam_ast(), integer() ) -> erl_parse:abstract_form().
-to_forms( AST, Line ) -> 
-    to_forms( AST, Line, dict:new() ).
+-spec to_forms( erlam_ast() ) -> {ok, erl_parse:abstract_form()} |
+                                 {error, any()}.
+to_forms( AST ) -> 
+    case to_forms( AST, dict:new() ) of
+        {error, Err} -> {error, Err};
+        Tree -> {ok, erl_syntax:revert( Tree )}
+    end.
 
-to_forms( N, Line, _ ) when is_integer( N ) ->
-    {integer, Line, N};
-to_forms( newchan, Line, _ ) ->
-    {call, Line, {remote, Line, {atom, Line, erlam_chan}, 
-                                {atom, Line, gen_new_chan}, []}};
-to_forms( nil_var, Line, _ ) -> 
-    {var, Line, '_'};
-to_forms( #erlam_var{ name=X}, Line, Vs ) ->
+to_forms( N,  _ ) when is_integer( N ) ->
+    erl_syntax:integer(N);
+to_forms( newchan, _ ) ->
+    erl_syntax:application( erl_syntax:atom( erlam_chan ),
+                            erl_syntax:atom( gen_new_chan ),
+                            [] );
+to_forms( nil_var, _ ) -> 
+    erl_syntax:variable( '_' );
+to_forms( #erlam_var{ name=X}, Vs ) ->
     case dict:find( X, Vs ) of
-        {ok, Val} -> {var, Line, Val};
+        {ok, Val} -> erl_syntax:variable( Val );
         error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
     end;
-to_forms( #erlam_app{ exp1=E1, exp2=E2 }, Line, Vs ) ->
-    {call, Line, {remote, Line, {atom, Line, erlang}, 
-                                {atom, Line, apply}, 
-                                [ to_forms( E1, Line, Vs),
-                                  ?list(Line, to_forms( E2, Line, Vs))]}};
-to_forms( #erlam_if{ exp=Pred, texp=T, fexp=F }, Line, Vs ) ->
-    {'case', Line, to_forms(Pred, Line, Vs),
-                   [{clause,Line,[{integer,Line,0}],[],[to_forms(F,Line,Vs)]},
-                    {clause,Line,[{var,Line,'_'}],[],[to_forms(T,Line,Vs)]}]};
-to_forms( #erlam_swap{ chan=C, val=V }, Line, Vs ) ->
-    {call, Line, {remote, Line, {atom, Line, erlam_chan},
-                                {atom, Line, swap},
-                                [to_forms(C,Line,Vs), to_forms(V,Line,Vs)]}};
-to_forms( #erlam_chan{ chan=N }, Line, _ ) -> 
-    {tuple, Line, [chan, N]};
-to_forms( #erlam_spawn{ exp=E }, Line, Vs ) ->
-    SubForms = to_forms( E, Line, Vs ),
-    {call, Line, {remote, Line, erlam_rts, safe_spawn, [ SubForms ]}};
-to_forms( #erlam_fun{var=V, exp=E}, Line, Vs ) ->
+to_forms( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) ->
+    erl_syntax:application( erl_syntax:atom( erlam_rts ),
+                            erl_syntax:atom( application ),
+                            [ to_forms( E1, Vs ),
+                              to_forms( E2, Vs )
+                            ]);
+to_forms( #erlam_if{ exp=Pred, texp=T, fexp=F }, Vs ) ->
+    erl_syntax:case_expr( to_forms(Pred, Vs), [
+        erl_syntax:clause( [erl_syntax:integer(0)], [], [to_forms( F, Vs )] ),
+        erl_syntax:clause( [erl_syntax:variable('_')], [], [to_forms( T, Vs )] )
+    ]);
+to_forms( #erlam_swap{ chan=C, val=V }, Vs ) ->
+    erl_syntax:application( erl_syntax:atom( erlam_chan ),
+                            erl_syntax:atom( swap ),
+                            [ to_forms(C, Vs), to_forms(V,Vs) ] );
+to_forms( #erlam_chan{ chan=N }, _ ) ->
+    erl_syntax:tuple([ erl_syntax:atom( chan ),
+                       erl_syntax:integer( N ) ]); 
+to_forms( #erlam_spawn{ exp=E }, Vs ) ->
+    SubForms = to_forms( E, Vs ),
+    erl_syntax:application( erl_syntax:atom( erlam_rts ),
+                            erl_syntax:atom( safe_spawn ),
+                            [ SubForms ] );
+to_forms( #erlam_fun{var=V, exp=E}, Vs ) ->
     {ok, X, NVars} = gen_new_var(V,Vs),
-    {'fun',Line, 
-        {clauses, Line,[
-            {clause, Line, [{var,Line,X}], [], [to_forms(E,Line,NVars)]}]}};
-to_forms( #erlam_erl{ func=F }, Line, _ ) ->
-    case erl_scan:string( F, Line ) of
+    erl_syntax:fun_expr( [
+        erl_syntax:clause( [erl_syntax:variable(X)], [], [to_forms(E,NVars)] )
+                         ] );
+to_forms( #erlam_erl{ func=F }, _ ) ->
+    case erl_scan:string( F ) of
         {ok, Tokens, _EndLoc} -> 
             (case erl_parse:parse_form( Tokens ) of
                  {ok, AbsForm}  -> AbsForm;
-                 {error, Error} -> ?error(Line, Error)
+                 {error, Error} -> {error, Error}
              end);
-        {error, Error} ->
-            ?error(Line, Error)
+        {error, Error} -> {error, Error}
+            
     end.
 
 
