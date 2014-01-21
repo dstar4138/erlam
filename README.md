@@ -57,7 +57,7 @@ running:
 Since ErLam compiles to Erlang's EScript by default, if on linux you can simply
 run an example (e.g. fibonacci) like so:
 
-    ./fib.ex
+    ./examples/fib.ex
 
 
 ### Examples
