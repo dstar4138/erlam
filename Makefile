@@ -4,6 +4,7 @@
 
 ERL=$(shell which erl)
 REBAR=$(CURDIR)/bin/rebar
+ELSC=$(CURDIR)/bin/els
 
 .PHONY: erlam clean distclean doc test examples
 
@@ -17,6 +18,7 @@ clean:
 distclean: clean
 	-rm -r ebin
 	-rm -r doc
+	-rm examples/*.ex
 
 doc: erlam
 	$(REBAR) doc
@@ -24,5 +26,8 @@ doc: erlam
 test:
 	$(REBAR) compile eunit
 
-examples:
-	@echo "Not implemented yet."
+examples: erlam
+	$(ELSC) examples/*
+	chmod +x examples/*.ex
+
+
