@@ -6,3 +6,4 @@ doc
 *.dump
 include/gen_*.hrl
 bin/els
+examples/*.ex
