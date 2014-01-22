@@ -29,7 +29,7 @@ to_erl( #erlam_var{ name=X }, Vs ) ->
         error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
     end;
 to_erl( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) -> 
-    ?build(["erlang:apply(",to_erl(E1,Vs), ",[", to_erl(E2,Vs),"])"]);
+    ?build(["erlam_rts:reduce(",to_erl(E1,Vs), ",", to_erl(E2,Vs),")"]);
 to_erl( #erlam_if{ exp=Pred, texp=T, fexp=F }, Vs ) ->
     ?build(["case (",to_erl(Pred,Vs),") of 0 -> (",
                 to_erl(F,Vs),"); _ -> (",to_erl(T,Vs),") end"]);
@@ -71,7 +71,7 @@ to_forms( #erlam_var{ name=X}, Vs ) ->
     end;
 to_forms( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) ->
     erl_syntax:application( erl_syntax:atom( erlam_rts ),
-                            erl_syntax:atom( application ),
+                            erl_syntax:atom( reduce ),
                             [ to_forms( E1, Vs ),
                               to_forms( E2, Vs )
                             ]);

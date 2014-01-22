@@ -59,6 +59,16 @@ run an example (e.g. fibonacci) like so:
 
     ./examples/fib.ex
 
+To check out some Runtime information about the program, append the `-v` option
+when running it. This will print out the number of spawned processes and the
+number of reductions performed on all threads:
+
+    ./examples/pfib.ex -v
+    Num Total Reductions: 2206
+    Num Total Processes: 177
+    Res: 55
+
+More runtime options to come.
 
 ### Examples
 
