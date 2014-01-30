@@ -80,7 +80,11 @@ to_beam( AST, Options ) ->
 to_escript( AST, Options ) ->
     {ok, Erl} = to_erl(AST, []),
     Source = wrap_for_source( Erl ),
-    Sections = [shebang, comment, {emu_args, "-pa "++?EBIN_DIR}, 
+    Sections = [shebang, comment, {emu_args, 
+                                    "+sbt s "++          % Max bind schedulers
+                                    "+sbwt very_long "++ % Don't let them sleep
+                                    "+scl false " ++     % Load Balancing off
+                                    "-pa "++?EBIN_DIR},  % Link to see rts mod
                 {source, list_to_binary(Source)}],
     case orddict:find( path, Options ) of
         error -> % Just Returning, So give back Contents.
