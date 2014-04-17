@@ -52,7 +52,7 @@ check_options( Files, Opts ) -> {Files, Opts}.
 %% @doc Enter the erlam shell.
 shell( Cfgs ) -> 
     io:put_chars("Now entering ErLam Shell!\n" ++
-                 "Use ^D to quit.\n"),
+                 "End all expressions with a ';'. Use ^D or 'q' to quit.\n"),
     erlam_interp:shell( Cfgs ).
 
 %% @private
