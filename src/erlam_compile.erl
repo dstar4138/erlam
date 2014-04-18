@@ -216,27 +216,27 @@ inject_module( Erl, Options ) ->
 wrap_for_source( Erl ) ->
     lists:flatten([
        "main(Args) when is_list(Args)->\n",
-        "erlam_rts:setup(Args),\n",
-        "X = ", Erl, ",\n",
+        "X = erlam_rts:setup(Args,", Erl,"),\n",
         "erlam_rts:breakdown(),\n",
         "io:format(\"Res: ~p~n\",[X]).\n"]).
 
 %% @hidden
 %% @doc Wraps our forms in a main function that is essentially the following:
 %%      ``` main( CArgs ) -> 
-%%              erlam_rts:setup(CArgs), X=Forms, erlam_rts:breakdown(), X.
+%%              X=erlam_rts:setup(CArgs,Forms), erlam_rts:breakdown(), X.
 %%      '''
 build_main_fun( Forms ) ->
     Setup = erl_syntax:application( erl_syntax:atom( erlam_rts ),
                                     erl_syntax:atom( setup ),
-                                    [erl_syntax:variable('CArgs')] ),
+                                    [ erl_syntax:variable('CArgs'),
+                                      Forms ] ),
     Set = erl_syntax:match_expr( erl_syntax:variable('X'), 
-                                 Forms ),
+                                 Setup ),
     BreakDown = erl_syntax:application( erl_syntax:atom( erlam_rts ),
                                         erl_syntax:atom( breakdown ),
                                         [] ),
     Return = erl_syntax:variable('X'),
     Clause = erl_syntax:clause([ erl_syntax:variable('CArgs') ], [],
-                               [ Setup, Set, BreakDown, Return ] ),
+                               [ Set, BreakDown, Return ] ),
     erl_syntax:function( erl_syntax:atom( main ), [ Clause ] ).
 

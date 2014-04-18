@@ -95,7 +95,9 @@ interpret( State, StringContent ) ->
         AST = State( ExprTree ), 
         UserCode = erlam_trans:to_erl(AST),
         run_erl( UserCode )
-    catch ?ANY_ERROR ->
+        %catch ?ANY_ERROR ->
+    catch E:V ->
+        io:format("~p:~p",[E,V]),
         io:format("ERROR: Syntax error, please balance all parens.~n",[])
     end.
 
@@ -105,11 +107,12 @@ interpret( State, StringContent ) ->
 %%   and print.
 %% @end
 run_erl( Code ) ->
-    Wrapped = lists:concat(["fun()-> ", Code, " end."]),
+    Wrapped = lists:concat([Code,"."]),
     {ok, Ts, _} = erl_scan:string( Wrapped ),
     {ok, Exps } = erl_parse:parse_exprs( Ts ),
-    {value, Fun, _} = erl_eval:exprs( Exps, [] ),
-    io:format("~p~n",[Fun()]).
+    {value, Ex, _} = erl_eval:exprs( Exps, [] ),
+    Result = evaluate( Ex ),
+    io:format("~p~n",[Result]).
 
 %% @hidden
 %% @doc Checks if a string ends in a ';'.
@@ -121,4 +124,15 @@ finished( [X|R],S) -> finished(R,[X|S]).
 %% @hidden
 %% @doc Trims all whitespace from the front and back of the expression.
 trim( A ) -> re:replace( A, "(^\\s+)|(\\s+$)", "", [global,{return,list}] ).
+
+%% @hidden
+%% @doc Appy all internal function representations or return the raw value.
+evaluate( Ex ) ->
+    case Ex of
+        {appfun, F, V} -> %TODO: This should be cleaned up or merged with sched.  
+            X = evaluate( F ),
+            Y = evaluate( V ),
+            evaluate( X(Y) );
+        _ -> Ex
+    end.
 
