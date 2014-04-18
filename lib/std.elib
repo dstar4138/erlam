@@ -17,6 +17,24 @@ elib
     // Used to bottom out recursive calls 
     id = (fun x.x);
 
+    // Pair, Tuples and Lists
+    pair = fun x,y,f.(f x y);
+    newlist = fun f.(f false false);
+    cons = fun x,l.(pair x l);
+    is_empty = fun l.(is_num (tail l));
+    count = fun l.(omega fun f,n,a.(if (is_empty n)
+                                       a
+                                       (f f (tail n) (inc a)))
+                       l 0);
+    rev = fun f.(omega fun r,a,l.(if (is_empty l)
+                                      a
+                                      (r r (cons (head l) a) tail l))
+                       newlist);
+    map = fun f.(omega fun r,a,l.(if (is_empty l)
+                                      (rev a)
+                                      (r r (cons (f (head l)) a) (tail l)))
+                       newlist);
+
     // Evaluate both parameters but drop/ignore the second value 
     fst = fun x.(fun _. x);
     left = fun x.(fun _. x);
