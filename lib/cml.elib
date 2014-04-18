@@ -2,14 +2,34 @@
 // Erlam.CML -               
 //
 //    Utilizing Swap channels, the following library implements event 
-//    simulations. Note that event's actually the channels themselves and it
-//    takes swapping with them to synchronize. 
+//    simulations. Note that events are actually a pair of channels, one for
+//    synchronization and another for aborting. Wraps will pipeline on their
+//    respective channels.
 //    
 // ****************************************************************************
 elib
   
    /// type 'a event = ( 'a channel * 'a channel )
    ///   First channel communicates event, second communicates abort.
+   ///   Note abort channel is initialized to nil, while sync is whatever
+   ///    returns from guard or the always value.
+
+    // Example channel which always returns the value given.
+    // :: 'a -> 'a event
+    always = fun v.(let s = newchan in
+                    let a = newchan in
+                    let loop = (omega fun f,x.(ignore (swap s x) (f f))) in
+                    let _ = (spawn fun _.(loop v)) in
+                    let _ = (spawn fun _.(swap a nil)) in
+                    (pair s a));
+
+
+    // Example channel which never syncs, but will allow an abort.
+    // :: 'a event
+    never = (let a = newchan in
+             let _ = (spawn fun _.(swap a nil)) in
+             (pair newchan a));
+
 
     // Get the channel responsible for synchronizing.
     // :: 'a event -> 'a channel
