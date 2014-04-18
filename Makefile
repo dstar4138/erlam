@@ -27,7 +27,7 @@ test:
 	$(REBAR) compile eunit
 
 examples: erlam
-	$(ELSC) examples/*
+	$(ELSC) examples/*.els
 	chmod +x examples/*.ex
 
 
