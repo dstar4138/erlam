@@ -7,6 +7,9 @@
 -module(erlam_sched_sup).
 -behaviour(supervisor).
 
+%% RTS API
+-export([startup/1]).
+
 %% API
 -export([start_link/1]).
 
@@ -22,9 +25,21 @@
 %%% API functions
 %%%===================================================================
 
+%% @doc Load the schedulers into place and return the primary ID.
+startup( Options ) ->
+    {PrimaryID, Children} = generate_children( Options ),
+    case start_link( Children ) of
+        {ok, _Pid} -> 
+            erlam_sched:init_ack(),
+            {ok, PrimaryID};
+        ignore -> {error, rts_failure};
+        {error,R} -> {error, R}
+    end. 
+
 %% @doc Start the supervisor and link it to the calling process.
-start_link( Options ) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, Options).
+start_link( Children ) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, Children).
+
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -34,9 +49,8 @@ start_link( Options ) ->
 %% @doc Generate the schedulers based on the provided options and then
 %%   initialize them all.
 %% @end  
-init( Options ) ->
+init( Children ) ->
     process_flag( trap_exit, true ),
-    Children = generate_children( Options ),
     {ok, {{one_for_one, 5, 10}, Children}}.
 
 %%%===================================================================
@@ -58,7 +72,23 @@ generate_children( Options ) ->
     % are able to have multiple scheduler modules all working on the same 
     % system.) 
     Layout = erlang:apply( Module, layout, [ Topology, Options ] ),
-    layout_to_children( Layout ).
+    PrimaryID = get_primary( Layout ),
+    Children = layout_to_children( Layout ),
+    {PrimaryID, Children}.
+
+%% @hidden
+%% @doc Get the processor ID of the primary scheduler.
+get_primary( [] ) -> 0;
+get_primary( [{_,_,Options}|R] ) ->
+    case lists:keyfind(primary, 1, Options) of
+        {primary, false} -> get_primary( R );
+        {primary, true}  -> 
+            (case lists:keyfind(processor, 1, Options) of
+                 {processor, N, _} -> N;
+                 _ -> exit("Scheduler missing correct processor designation.")
+            end);
+        _ -> exit("Scheduler missing correct primary designation.")
+    end. 
 
 %% @hidden
 %% @doc Based on the Layout returned by the scheduler callback, we create

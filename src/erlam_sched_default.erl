@@ -7,6 +7,7 @@
 
 -module(erlam_sched_default).
 -behaviour(erlam_sched).
+-include("debug.hrl").
 
 % Erlam Scheduler Callbacks:
 -export([layout/2, init/1, cleanup/1, step/3]).
@@ -33,15 +34,17 @@ layout( Topology, Options ) ->
 
 %% @doc Return the state of the initial 
 init( Options ) ->
-    io:format("INIT: ~p~n---------------~n",[Options]),
     Primary = is_primary( Options ),
     MQ = find_or_make_mq( Primary ),
+    Processor = get_processor( Options ),
+    Debuggery = is_debug( Options ),
     State = #state{
-        processor = get_processor( Options ),
+        processor = Processor, 
         primary   = Primary,
-        debugging = is_debug( Options ),
+        debugging = Debuggery,
         mq        = MQ
     },
+    ?DEBUG("INIT: ~p~n---------------~n~p~n=================~n",[Options,State]),
     add_to_queue( Primary, State ),
     {ok, State}.
 
@@ -52,9 +55,9 @@ cleanup( #state{ primary = true, mq = MQ } = State ) ->
 cleanup( _ ) -> ok.
 
 %% @doc Step through the system.
-step( X, Y, Z ) -> 
-    io:format("DERP: ~p, ~p, ~p",[X,Y,Z]),
-    {stop, Y}.
+step( X, Y, Z ) ->  
+    ?DEBUG("STEPPING(~p,~p,~p)~n",[X,Y,Z]),
+    {ok, 'WAITING', Y}.
 %step( 'WAITING', State, [] ) -> {ok, 'WAITING', State};
 %step( 'WAITING', State, [{apply,Fun,Val}|T] ) -> 
 %    erlam_rts:reduce( Fun, Val ).
@@ -78,9 +81,8 @@ is_debug( Options ) ->
 %% @hidden
 %% @doc Check options for which processor we're given.
 get_processor( Options ) ->
-    case proplist:get_value( processor, Options, unbound ) of
-        unbound -> 0;
-        N -> N
+    case lists:keyfind( processor, 1, Options ) of
+        {processor, N, _} -> N
     end.
 
 %% @hidden
@@ -105,6 +107,7 @@ add_to_queue( true, _ ) -> ok.
 %%% ==========================================================================
 
 advertise_waiting( #state{processor=Proc, mq=MQ} ) ->
+    ?DEBUG("APPENDING ~p TO MQ~n",[Proc]),
     MQ!{append, Proc},
     ok.
 
@@ -151,9 +154,10 @@ handle_spawn( Fun, #mq_state{ procs = P, funs = F } = State ) ->
 %%   processes.
 %% @end  
 handle_append( Sched, #mq_state{ procs = P, funs = F } = State ) ->
-    case F of
-        [] -> mq_loop( State#mq_state{ procs=add_proc(Sched, P) } );
-        [H|T] -> 
+    case queue:out( F ) of
+        {empty,_} -> 
+            mq_loop( State#mq_state{ procs=add_proc(Sched, P) } );
+        {{value,H},T} ->
             send_fun_to_sched( H, Sched ),
             mq_loop( State#mq_state{ funs=T } )
     end.

@@ -23,7 +23,7 @@
 -export([layout/3]).
 
 %PRIVATE
--export([init/3, sched_opts/0]).
+-export([init/4, sched_opts/0, init_ack/0]).
 
 %%% ==========================================================================
 %%% Scheduler Type Checking
@@ -116,15 +116,14 @@
 
 -define(SCHEDULER_GROUP, erlam_sched).
 
-%% @doc Send the initial expression to the primary processor.
+%% @doc Send the initial expression to the primary processor and then waits
+%%   for the result message. This function will "run" an expression using the
+%%   scheduling options and nothing more.
+%% @end  
 run( SchedOpts, Expression ) ->
-    try 
-        erlam_sched_sup:start_link( SchedOpts ),
-        PrimaryProcID = 0, %TODO: get from supervisor on startup.
-        erlam_sched:send(PrimaryProcID, {apply,Expression})
-    catch E:X ->
-        io:format( "~p:~p -> ~n~p~n",[E,X,erlang:get_stacktrace()])
-    end.
+    {ok, PrimaryProcID} = erlam_sched_sup:startup( SchedOpts ),
+    erlam_sched:send(PrimaryProcID, {run,self(),Expression}),
+    hang_for_result(). % Sleep until result message.
 
 'spawn'( _Fun ) -> ok. %%XXX: DO THIS NOW!!!
     
@@ -133,13 +132,12 @@ run( SchedOpts, Expression ) ->
 %%   processor with a given implementation.
 %% @end  
 start_link( ProcID, SchedulerModule, Options ) -> 
-     io:format("STARTING: ~p~n",[{ProcID,SchedulerModule,Options}]),
+    io:format("STARTING: ~p~n",[{ProcID,SchedulerModule,Options}]),
     case validate_options( Options ) of
-        ok  -> 
-            %Args = [ 
-            ?MODULE:init( ProcID, SchedulerModule, Options );
-            %],
-            %proc_lib:spawn_link( ?MODULE, init, Args );
+        ok  ->
+            Starter = self(), % Force sched to report back to us when started. 
+            Args = [ Starter, ProcID, SchedulerModule, Options ],
+            proc_lib:start_link( ?MODULE, init, Args );
         Err -> Err
     end.
 
@@ -185,23 +183,30 @@ option_update(N,Max,_Options)-> %TODO: Fix overriding options from user.
 %%% Private API
 %%% ==========================================================================
 
+%% @hidden
+%% @doc This function will not return until the local process gets a message.
+%%   It's hoping that it's a result message from the primary scheduler.
+%% @end
+hang_for_result() ->
+    receive 
+        {result, Value} -> 
+            Value;
+        _Other -> 
+            ?DEBUG("Got weird response to result manager: ~p~n", [_Other]),
+            error
+    end.
+
 %% @private
 %% @doc Initialize the user-space scheduler server by binding it to the Erlang
 %%   VM scheduler and telling it not to keep track of stats about it.
 %% @end
-init( ProcID, Module, Options ) ->
-    ?DEBUG("DERP",[]),
+init( Starter, ProcID, Module, Options ) ->
     process_flag( scheduler, ProcID ), % Bind to Processor ID.
-    ?DEBUG("DERP",[]),
     process_flag( sensitive, true   ), % Remove all RT Stats gathering.
-    ?DEBUG("DERP",[]),
     process_flag( priority,  high   ), % Push the priority of the scheduler up.
-    ?DEBUG("DERP",[]),
     join_pg( ?SCHEDULER_GROUP ),       % Join a scheduler pool for msg passing.
-    ?DEBUG("DERP",[]),
     State = initial_state( ProcID, Module, Options ),
-    ?DEBUG("DERP",[]),
-    server_entry( State ).             % Initialize the user-space scheduler.
+    server_entry( Starter, State ).    % Initialize the user-space scheduler.
 
 
 %% @private
@@ -273,11 +278,32 @@ initial_state( ProcID, Module, Options ) ->
 %%   to the stepper loop. If there are any errors or warnings, those are taken
 %%   care of by run_init/1.
 %% @end  
-server_entry( State ) ->
+server_entry( Starter, State ) ->
     case run_init( State ) of
-        {ok, Updated} -> server_loop( Updated );
-        stop -> server_stop( State )
+        {ok, Updated} -> 
+            % Report back to initalization code that it was a successful
+            % startup of the scheduler system. We can now run the loop.
+            proc_lib:init_ack( Starter, {ok, self()} ),
+            hang_for_fin_init(),
+            server_loop( Updated );
+        {stop,Reason} -> 
+            % Bad initialization, return error
+            proc_lib:init_ack( Starter, {error, Reason}),
+            server_stop( State )
     end.
+
+%% @hidden
+%% @doc Sleeps the scheduler transparently until all scheduler's have been
+%%   initialized.
+%% @end  
+hang_for_fin_init() ->
+    receive initack -> ok end.
+
+%% @private
+%% @doc Triggers the fin-init stage, which is done by erlam_sched_sup:startup/1.
+init_ack() ->
+    Members = pg:members( ?SCHEDULER_GROUP ),
+    lists:map(fun (Pid) -> Pid!initack end, Members).
 
 %% @hidden
 %% @doc This is the stepper loop process for the internal scheduling behaviour.
@@ -292,7 +318,7 @@ server_loop( State ) ->
 %% @doc Handles the internal scheduler cleanup.
 server_stop( State ) ->
     run_cleanup( State ),
-    ok.
+    exit(normal).
        
 %% @hidden
 %% @doc Using the public scheduler API calls, other schedulers can communicate
@@ -330,7 +356,7 @@ decide_future( #is{ state = running } = State )  -> server_loop( State ).
 join_pg( Group ) ->
     case pg:create( Group ) of
         ok -> pg:join( Group, self() );
-        already_created -> pg:join( Group, self() );
+        {error, already_created} -> pg:join( Group, self() );
         Err -> Err
     end.
 
@@ -342,8 +368,7 @@ join_pg( Group ) ->
 %%   contacting the runtime logger for posting warnings and errors.
 %% @end  
 run_init( State ) ->
-    ?DEBUG("STATE:~p~n",[State]),
-    case 
+    case catch 
         erlang:apply( State#is.sched_module, init, [State#is.sched_opts] )
     of
         {ok, S} -> {ok, State#is{ sched_state = S }};
@@ -352,14 +377,19 @@ run_init( State ) ->
             {ok, State#is{sched_state = S, state = running}};
         {error, E} ->
             erlam_rts:logger( error, E ),
-            stop
+            {stop, E};
+        {'EXIT',Reason} ->
+            erlam_rts:logger( error, Reason ),
+            {stop, Reason}
     end.
 
 %% @hidden
 %% @doc Wraps the behaviour call to the implemented scheduler.  
 run_step( #is{ status_hist = Hist } = State ) ->
-    case
-        erlang:apply( State#is.sched_module, step, [State#is.sched_state] )
+    case catch
+        erlang:apply( State#is.sched_module, step, [State#is.state,
+                                                    State#is.sched_state,
+                                                    State#is.mq] )
     of 
         {ok, Status, Updated} ->  
             State#is{sched_status=Status, 
@@ -368,7 +398,10 @@ run_step( #is{ status_hist = Hist } = State ) ->
                     };
         {stop, Updated} ->
             State#is{state=stopping,
-                     sched_state=Updated}
+                     sched_state=Updated};
+        {'EXIT', Reason} ->
+            erlam_rts:logger(error, Reason),
+            State#is{ state=stopping }
     end.
 
 %% @hidden
@@ -376,12 +409,13 @@ run_step( #is{ status_hist = Hist } = State ) ->
 %%   contacting the runtime logger for posting warnings and errors.
 %% @end  
 run_cleanup( State ) ->
-    case 
+    case catch 
         erlang:apply( State#is.sched_module, cleanup, [State#is.sched_state])
     of
         ok -> ok;
         {error, E} -> erlam_rts:logger( error, E );
-        {warn, W}  -> erlam_rts:logger( warn, W  )
+        {warn, W}  -> erlam_rts:logger( warn, W  );
+        {'EXIT',R} -> erlam_rts:logger( error, R )
     end.
 
 %% ---------------------------

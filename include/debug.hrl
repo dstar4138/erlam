@@ -2,9 +2,11 @@
 
 
 -ifdef(DEBUG_RUN).
+-define(DEBUG( Msg ), io:format(Msg,[])).
 -define(DEBUG( Msg, Format ), io:format(Msg, Format)).
 
 -else.
+-define(DEBUG( _ ), true).
 -define(DEBUG( _, _), true).
 
 -endif.
