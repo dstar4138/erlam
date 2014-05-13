@@ -36,7 +36,7 @@ stop_shell()->
 %% @hidden
 %% @doc Start the minimal runtime system and return the loaded libraries.
 start_minimum_rts() ->
-    erlam_chan:start(), %% Start the channel server.
+    erlam_chan_serve:start(), %% Start the channel server.
     erlam_lib:inter_update( [] ). %% Return the default libraries.
 
 %% @hidden
@@ -97,7 +97,8 @@ interpret( State, StringContent ) ->
         run_erl( UserCode )
         %catch ?ANY_ERROR ->
     catch E:V ->
-        io:format("~p:~p",[E,V]),
+        X = erlang:get_stacktrace(),
+        io:format("~p:~p~n~p~n",[E,V,X]),
         io:format("ERROR: Syntax error, please balance all parens.~n",[])
     end.
 
