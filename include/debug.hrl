@@ -2,8 +2,8 @@
 
 
 -ifdef(DEBUG_RUN).
--define(DEBUG( Msg ), io:format(Msg,[])).
--define(DEBUG( Msg, Format ), io:format(Msg, Format)).
+-define(DEBUG( Msg ), io:format("~p|"++Msg,[self()])).
+-define(DEBUG( Msg, Format ), io:format("~p|"++Msg, [self()|Format])).
 
 -else.
 -define(DEBUG( _ ), true).

@@ -5,10 +5,15 @@
 %%
 %% @author Alexander Dean
 -module(erlam_interp).
+-include("debug.hrl").
+-include("erlam_exp.hrl").
+-include("process.hrl").
+
+%% PUBLIC
 -export([shell/1]).
 
 %% PRIVATE
--export([interpret/2, run_erl/1]).
+-export([interpret/2]).
 
 -define(FREE_BUFFER,"").
 -define(ANY_ERROR,_:_).
@@ -93,9 +98,8 @@ interpret( State, StringContent ) ->
         {ok, Tokens, _EndLine} = erlam_lexer:string( StringContent ),
         {ok, ExprTree} = erlam_parser:parse( Tokens ),
         AST = State( ExprTree ), 
-        UserCode = erlam_trans:to_erl(AST),
-        run_erl( UserCode )
-        %catch ?ANY_ERROR ->
+        run_ast( AST )
+    %catch ?ANY_ERROR ->
     catch E:V ->
         X = erlang:get_stacktrace(),
         io:format("~p:~p~n~p~n",[E,V,X]),
@@ -103,17 +107,14 @@ interpret( State, StringContent ) ->
     end.
 
 %% @private
-%% @doc Wraps the parsed code in a function call and converts it to Erlang.
-%%   It then passes the Erlang expression to the underlying VM to process
-%%   and print.
+%% @doc Evaluates the Extended Abstract Syntax Tree. It uses the standard
+%%   stepping process the RTS uses, and then pretty prints the resulting value.
 %% @end
-run_erl( Code ) ->
-    Wrapped = lists:concat([Code,"."]),
-    {ok, Ts, _} = erl_scan:string( Wrapped ),
-    {ok, Exps } = erl_parse:parse_exprs( Ts ),
-    {value, Ex, _} = erl_eval:exprs( Exps, [] ),
-    Result = evaluate( Ex ),
-    io:format("~p~n",[Result]).
+run_ast( AST ) ->
+   io:format("~p~n",[AST]),
+   Result = stepall( AST ), 
+   pp_ast( Result ),
+   io:format("~n",[]).
 
 %% @hidden
 %% @doc Checks if a string ends in a ';'.
@@ -127,13 +128,48 @@ finished( [X|R],S) -> finished(R,[X|S]).
 trim( A ) -> re:replace( A, "(^\\s+)|(\\s+$)", "", [global,{return,list}] ).
 
 %% @hidden
-%% @doc Appy all internal function representations or return the raw value.
-evaluate( Ex ) ->
-    case Ex of
-        {appfun, F, V} -> %TODO: This should be cleaned up or merged with sched.  
-            X = evaluate( F ),
-            Y = evaluate( V ),
-            evaluate( X(Y) );
-        _ -> Ex
+%% @doc Steps through an AST until completion, defaulting with an empty 
+%%   enviroment.
+%% @end
+stepall( AST ) -> 
+    case stepall( AST, [] ) of
+        {ok, Val} -> Val;
+        {error,Reason} ->
+            io:format("ERROR: ~p~n",[Reason]),
+            0 % Default to 0 return value.
     end.
+stepall( AST, ENV ) ->
+    check_msgs(),
+    case erlam_rts:step( AST, ENV ) of
+        {ok, NextAST} -> stepall( NextAST, ENV );
+        {ok, NAST, NENV} -> stepall( NAST, NENV );
+        {stop, Val} -> {ok, Val};
+        {error, Reason} -> {error, Reason}
+    end.
+
+%% @hidden
+%% @doc Due to not having a scheduler, all scheduling messages will be picked
+%%   up by the local process. This will handle them in a default manner.
+%% @end
+check_msgs() ->
+    receive 
+        {sched_spawn, Process} -> 
+            basic_spawn( Process ),
+            check_msgs()
+        %TODO: Any other messages?
+    after 0 -> ok end.
+
+%% @hidden
+%% @doc Rip the expression and environment out of the process and
+%%   turn it into a basic Erlang process and let the Erlang scheduler take 
+%%   care of it.
+%% @end
+basic_spawn( #process{ exp = E, env=Env } ) ->
+   erlang:spawn( fun() -> stepall(#erlam_app{ exp1=E, exp2=0 }, Env) end ).
+
+%% @hidden
+%% @doc Pretty print channels and functions by observing internals.
+pp_ast( #erlam_fun{var=N} ) -> io:format(",\(~p)->{...}",[N]);
+pp_ast( #erlam_chan{chan=C} ) -> io:format("[chan~p]",[C]);
+pp_ast( V ) -> io:format("~p",[V]).
 

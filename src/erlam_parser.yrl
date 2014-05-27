@@ -53,7 +53,7 @@ maps -> op_closelib : [].
 map -> var_expr op_eq mapexpr : {name_of('$1'), '$3'}.
 mapexpr -> expr op_semi : '$1'.
 mapexpr -> op_erlcode op_obrack integer op_cbrack op_erlblock op_semi : 
-    {erlam_erl, value_of('$3'), value_of( '$5' )}.
+    {erlam_erl, value_of('$3'), erlblock_eval( value_of( '$5' ) )}.
 
 
 % A Program is currently just an Expression:
@@ -131,3 +131,12 @@ flatten_apply( [A,B|R] ) ->
     
 name_of( Token ) -> element(2, Token).
 value_of( Token ) -> element(3, Token).
+
+% Parse builtin's by pass-through to Erlang Parser/Lexer
+erlblock_eval( ErlBlock ) ->
+    Wrapped = lists:concat([ErlBlock,"."]),
+    {ok, Ts, _} = erl_scan:string( Wrapped ),
+    {ok, Exps } = erl_parse:parse_exprs( Ts ),
+    {value, Ex, _} = erl_eval:exprs( Exps, [] ),
+    Ex.
+

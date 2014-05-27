@@ -32,11 +32,8 @@ start_link( ID ) ->
 
 %% @doc Given a channel, hang until another process swaps with you.
 -spec swap( #chan{}, erlam_val() ) -> erlam_val().
-swap( Chan, Val ) -> 
-    ?DEBUG("Attempting swap on ~p, with ~p",[Chan, Val]),
-    #chan{cpid=CPID} = Chan,
-    V = gen_server:call(CPID, {swap, Val}, infinity),
-    ?DEBUG("Got Value=~p~n",[V]), V.
+swap( #chan{cpid=CPID}, Val ) -> 
+    gen_server:call(CPID, {swap, Val}, infinity).
 
 %% @doc Checks to make sure it is a valid 
 -spec valid( term() ) -> boolean().
@@ -53,13 +50,11 @@ valid( _ ) -> false.
 %% @private
 %% @doc Initializes the server
 init([ ID ]) -> 
-    ?DEBUG("CHANNEL ~p HAS STARTED.~n",[ID]),
     {ok, #state{curid=ID}}.
 
 %% @private
 %% @doc Handling synch call messages.
 handle_call({swap, Val}, From, State = #state{curval=V}) ->
-    ?DEBUG("GOT SWAP: ~p, ~p",[Val, State]),
     case V of
         undefined -> 
             NewVal = {Val,From},

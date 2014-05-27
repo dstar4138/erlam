@@ -4,10 +4,11 @@
 %%  an erlam progarm with the keywords and shorthands found.
 %%
 -module(erlam_lib).
--export([update/1,update/2,inter_update/1]).
 -include("debug.hrl").
 -include("erlam_exp.hrl").
 -include("gen_lib.hrl").
+
+-export([update/1,update/2,inter_update/1]).
 
 -type lib_cfg() 
              % Override where to parse lib files. 

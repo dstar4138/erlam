@@ -15,14 +15,17 @@
 %% @author Alexander Dean
 -module(erlam_sched).
 -include("debug.hrl").
+-include("process.hrl").
 
 %PUBLIC
--export([run/2, spawn/1, start_link/3, stop/1, stopall/0, broadcast/1, send/2]).
+-export([run/2, spawn/2]).
 
-%PUBLIC - DEFAULTS
--export([layout/3]).
+%PUBLIC - For Scheduler Behaviour Implementations
+-export([broadcast/1, send/2, check_mq/0, get_id/0]).
+-export([layout/3]). %% DEFAULT FUNCTIONALITY
 
 %PRIVATE
+-export([start_link/3, stop/1, stopall/0]).
 -export([init/4, sched_opts/0, init_ack/0]).
 
 %%% ==========================================================================
@@ -44,7 +47,9 @@
 %%% The layout perscribed to the particular CPU topology of the system by 
 %%% this particular scheduler module. Thus we could have multiple layouts based
 %%% on options and hardware layouts.
--type scheduler_layout() :: term(). %TODO: properly define. 
+%%%     [ { ProcID, SchedulerBehaviourModule, OptionsForInit }, ... ]
+-type scheduler_desc() :: {non_neg_integer(), atom(), scheduler_opts()}.
+-type scheduler_layout() :: [ scheduler_desc() ]. 
                             
 %%% Options that are passed into the scheduler at runtime are as follows:
 -type scheduler_opt() :: 
@@ -110,11 +115,17 @@
                     {stop, scheduler_state()}. 
 
 
+%% When the RTS evaluates the spawn command, it will patch into the primary
+%% scheduler module (not the physical process) and call this function. It's
+%% goal is to add the process to whatever queue it needs to.
+-callback spawn_process( proc_id(), erlam_process() ) -> ok 
+                                                       | {error, log_msg()}.
+
 %%% ==========================================================================
 %%% Public API
 %%% ==========================================================================
-
--define(SCHEDULER_GROUP, erlam_sched).
+%%%   These functions are utilized by the Runtime system (erlam_rts) to access
+%%%   the loaded scheduling subsystem. The entry points are run/2 and spawn/2. 
 
 %% @doc Send the initial expression to the primary processor and then waits
 %%   for the result message. This function will "run" an expression using the
@@ -122,32 +133,86 @@
 %% @end  
 run( SchedOpts, Expression ) ->
     {ok, PrimaryProcID} = erlam_sched_sup:startup( SchedOpts ),
-    erlam_sched:send(PrimaryProcID, {run,self(),Expression}),
+    spawn_to_primary(PrimaryProcID, Expression),
     hang_for_result(). % Sleep until result message.
 
-'spawn'( _Fun ) -> ok. %%XXX: DO THIS NOW!!!
-    
+%% @doc Spawn an Erlam function as a new process using the loaded scheduling
+%%   behaviour. This implementation is kinda tricky: the process which calls
+%%   this will be a scheduler (through safe_step/1 -> step/2 -> safe_spawn/1), 
+%%   so we send an internal spawn message to self(), which it will read after
+%%   the step has completed. This also has the effect of queuing the spawns.
+%% @end
+spawn( Fun, Env ) -> self() ! {sched_spawn, ?new_process( Fun, Env )}, ok.
 
+
+%%% ==========================================================================
+%%% Public Scheduler Server API
+%%% ==========================================================================
+%%%     These are ignored by most of the system besides and should not be
+%%%     called directly. Instead these are utilized by the runtime system
+%%%     calls to erlam_sched_sup:setup/2 via erlam_sched:run/2.
+
+-define(SCHEDULER_GROUP, erlam_sched).
+
+%% @private
 %% @doc Validate the options and then start the scheduler on a particular 
 %%   processor with a given implementation.
 %% @end  
 start_link( ProcID, SchedulerModule, Options ) -> 
-    io:format("STARTING: ~p~n",[{ProcID,SchedulerModule,Options}]),
+    io:format("STARTING: ~p~n",[{ProcID,SchedulerModule,Options}]),%%XXX: REMOVE AFTER TESTING
     case validate_options( Options ) of
         ok  ->
-            Starter = self(), % Force sched to report back to us when started. 
+            Starter = self(), % This behaviour works like most gen_*, and forces
+                              % the implemented behavior to phone home after 
+                              % init/1 completes with success/failure.
             Args = [ Starter, ProcID, SchedulerModule, Options ],
             proc_lib:start_link( ?MODULE, init, Args );
         Err -> Err
     end.
 
+%% @private
+%% @doc Get the Scheduler options for the supervisor so that it can clean the
+%%   input for you.
+%% @end
+sched_opts() -> ?SCHED_OPTS.  
+
+%% @private
+%% @doc Triggers the fin-init stage, which is done by erlam_sched_sup:startup/1.
+%%   Which in turn triggers the stepping of all schedulers in more or less
+%%   lock-step.
+%% @end
+init_ack() ->
+    Members = pg:members( ?SCHEDULER_GROUP ),
+    lists:map( fun(Pid) -> Pid!initack end, Members ).
+
+%% @private
 %% @doc Stops a scheduler running on the particular Processor ID.
 stop( ProcID ) ->
-    pg:send( ?SCHEDULER_GROUP, {stop, ProcID} ).
+    pg:send( ?SCHEDULER_GROUP, {sched_internal, stop, ProcID} ).
 
+%% @private
 %% @doc Stops all Erlam Schedulers.
 stopall() ->
-    pg:send( ?SCHEDULER_GROUP, stop ).
+    pg:send( ?SCHEDULER_GROUP, {sched_internal, stop} ).
+
+    
+%%% ==========================================================================
+%%% Internal Scheduler API Functions
+%%% ==========================================================================
+%%%  These functions are provided for the scheduler behaviour to utilize for
+%%%  either default implementations (e.g. layout/3) or to access inter-process
+%%%  communication that the scheduler framework provides (e.g. send/2, 
+%%%  check_mq/0).
+%%%
+
+%% Process Dictionary Values
+%%   We save some values in the scheduler process dictionary for quick access
+%%   and then abstract some callback functions for accessing and manipulating
+%%   them. 
+-define(PD_LPU_ID,lpuid).     %The logical processing units id this is bound to.
+-define(PD_MSG_HANG,msghang). %How long until we resign hope on getting a msg.
+-define(PD_MSG_MAX,msgmax).   %The max internals we may handle per step.
+-define(PD_STATE,schedstate). %The internal state: startup/running/stopping
 
 %% @doc Broadcast a message to all schedulers. Useful for synchronizing?
 broadcast( Message ) ->
@@ -159,46 +224,53 @@ broadcast( Message ) ->
 send( ProcID, Message ) ->
     pg:send( ?SCHEDULER_GROUP, {sched_msg, ProcID, Message}).
 
+%% @doc Check the local message queue (other side of send/2). Note that the
+%%   only time this will valid is during a schedmodule:step/2 call.
+%% @end 
+check_mq() -> check_mq( get( ?PD_MSG_MAX ) ).
+check_mq( 0 ) -> false;
+check_mq( N ) ->
+    ProcID = get( ?PD_LPU_ID ), 
+    Hang = get( ?PD_MSG_HANG ),
+    receive 
+        {pg, _from, ?SCHEDULER_GROUP, {sched_msg,ProcID,M}} -> M;
+        {pg, _from, ?SCHEDULER_GROUP, {sched_msg,M}} -> M;
+        Unknown ->    
+            internal_handle_msg( Unknown ),
+            check_mq( N - 1 )  % We would like to return timely, ignore 
+                               % internals after a while
+    after Hang -> false end.   
+
+%% @doc Get the calling scheduler's Logical Processor's ID or ProcID.
+get_id() -> get( ?PD_LPU_ID ).
+
+
 %% @doc Generates a default scheduler layout with one module per logical
 %%   processing unit. This disregards exact topology and just returns
 %%   the max list of modules. Note: schedulers can just call this function
 %%   from their layout/2 function if they want to. 
 %% @end
-layout( Module, Topology, Options ) -> 
-    Count = lists:foldl( fun(X,C)-> count_logical(X,0)+C end, 0, Topology ),
-    ?DEBUG("IGNORING OPTIONS PASSED TO DEFAULT SCHEDULER: ~p~n",[Options]),
-    lists:map(fun(N)-> {N,Module,option_update(N, Count, Options)} end, 
-              lists:seq(0,Count-1)).
-count_logical({logical,_},N)-> N+1;
-count_logical({thread,L},N) -> recurse_logic(L,N);
-count_logical({core,L},N)   -> recurse_logic(L,N);
-count_logical({processor,L},N) -> recurse_logic(L,N).
-recurse_logic(L,N) when is_list(L) -> 
-    lists:foldl(fun(X,M)-> count_logical(X,M) end, N, L);
-recurse_logic(X,N) -> count_logical(X,N).
-option_update(N,Max,_Options)-> %TODO: Fix overriding options from user.
-    [{primary,(N==0)},{processor,N,Max},{debug,true}].
-    
+layout( Module, Topology, Options ) ->
+    % Count the number of LPU's on each branch of the Topology. 
+    Count = lists:foldl( fun(X,C)-> 
+                                 count_logical(X,0)+C 
+                         end, 0, Topology ),
+    % With the count, generate a list of sched_desc() for each LPU.
+    % If LPU is 0, then it will set it as primary.
+    lists:map( fun(N)-> 
+                    {N,Module,option_update(N, Count, Options)} 
+               end, lists:seq(0, Count-1)).
+
 %%% ==========================================================================
-%%% Private API
+%%% Private Scheduler Process API
 %%% ==========================================================================
 
-%% @hidden
-%% @doc This function will not return until the local process gets a message.
-%%   It's hoping that it's a result message from the primary scheduler.
-%% @end
-hang_for_result() ->
-    receive 
-        {result, Value} -> 
-            Value;
-        _Other -> 
-            ?DEBUG("Got weird response to result manager: ~p~n", [_Other]),
-            error
-    end.
+internal_handle_msg( Msg ) -> ok . % TODO: Replace some of below with this fun.
 
 %% @private
 %% @doc Initialize the user-space scheduler server by binding it to the Erlang
-%%   VM scheduler and telling it not to keep track of stats about it.
+%%   VM scheduler and telling it not to keep track of stats about it, we can
+%%   do that.
 %% @end
 init( Starter, ProcID, Module, Options ) ->
     process_flag( scheduler, ProcID ), % Bind to Processor ID.
@@ -208,18 +280,8 @@ init( Starter, ProcID, Module, Options ) ->
     State = initial_state( ProcID, Module, Options ),
     server_entry( Starter, State ).    % Initialize the user-space scheduler.
 
-
-%% @private
-%% @doc Get the Scheduler options for the supervisor so that it can clean the
-%%   input for you.
-%% @end
-sched_opts() -> ?SCHED_OPTS.  
-
-
-%%% ==========================================================================
-%%% Internal functionality
-%%% ==========================================================================
-
+%%%%%%%%%%%TODO: CLEAN UP EVERYTHING PAST THIS POINT!!! USE THE PD!!
+%%%
 -type internal_state() :: startup | running | stopping.
 
 %% Internal state wrapper to keep scheduler behaviour working.
@@ -299,11 +361,18 @@ server_entry( Starter, State ) ->
 hang_for_fin_init() ->
     receive initack -> ok end.
 
-%% @private
-%% @doc Triggers the fin-init stage, which is done by erlam_sched_sup:startup/1.
-init_ack() ->
-    Members = pg:members( ?SCHEDULER_GROUP ),
-    lists:map(fun (Pid) -> Pid!initack end, Members).
+%% @hidden
+%% @doc This function will not return until the local process gets a message.
+%%   It's hoping that it's a result message from the primary scheduler.
+%% @end
+hang_for_result() ->
+    receive 
+        {result, Value} -> 
+            Value;
+        _Other -> 
+            ?DEBUG("Got weird response to result manager: ~p~n", [_Other]),
+            error
+    end.
 
 %% @hidden
 %% @doc This is the stepper loop process for the internal scheduling behaviour.
@@ -426,4 +495,37 @@ get_message_hang( Opts ) ->
     proplists:get_value( message_hang, Opts, ?DEFAULT_MESSAGE_HANG ).
 get_message_buffer( Opts ) ->
     proplists:get_value( message_buffer, Opts, ?DEFAULT_MESSAGE_BUFFER ).
+
+
+%%% ==========================================================================
+%%% Internal Functionality
+%%% ==========================================================================
+%%%     Functions utilized exclusively in this module.
+
+%% @hidden
+%% @doc Send the initial master function to the primary scheduler. 
+spawn_to_primary( ProcessorID, Fun ) ->
+    FakeEnv = [],
+    Process = ?set_primary( ?new_process( Fun, FakeEnv ) ),
+    erlam_sched:send( ProcessorID, {sched_internal, spawn, Process} ).
+
+%% @hidden
+%% @doc Count the number of Logical Processing units in a cpu_topology().
+count_logical({logical,_},N)-> N+1;
+count_logical({thread,L},N) -> recurse_logic(L,N);
+count_logical({core,L},N)   -> recurse_logic(L,N);
+count_logical({processor,L},N) -> recurse_logic(L,N).
+recurse_logic(L,N) when is_list(L) -> 
+    lists:foldl(fun(X,M)-> count_logical(X,M) end, N, L);
+recurse_logic(X,N) -> count_logical(X,N).
+
+%% @hidden
+%% @doc Update user options in topology generation.
+option_update(N, Max, Options)-> 
+    Update = fun (Tuple, List) ->
+                lists:keyreplace( element(1,Tuple), 1, Tuple, List )
+             end,
+    lists:foldl( Update, 
+                 Options, 
+                 [{primary,(N==0)},{processor,N,Max},{debug,true}] ). %%TODO: REMOVE DEBUG.
 

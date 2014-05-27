@@ -21,7 +21,7 @@ to_erl( AST ) ->
     to_erl( AST, dict:new() ).
 
 to_erl( N, _ ) when is_integer( N ) -> erlang:integer_to_list(N);
-to_erl( newchan, _ ) -> "erlam_chan:get_new_chan()";
+to_erl( newchan, _ ) -> "erlam_chan_serve:get_new_chan()";
 to_erl( nil_var, _ ) -> "_";
 to_erl( #erlam_var{ name=X }, Vs ) -> 
     case dict:find( X, Vs ) of
@@ -59,7 +59,7 @@ to_forms( AST ) ->
 to_forms( N,  _ ) when is_integer( N ) ->
     erl_syntax:integer(N);
 to_forms( newchan, _ ) ->
-    erl_syntax:application( erl_syntax:atom( erlam_chan ),
+    erl_syntax:application( erl_syntax:atom( erlam_chan_serve ),
                             erl_syntax:atom( gen_new_chan ),
                             [] );
 to_forms( nil_var, _ ) -> 

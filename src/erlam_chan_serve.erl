@@ -49,12 +49,11 @@ init([]) -> {ok, #state{curid=0, open_chans=dict:new()}}.
 %% @private
 %% @doc Handling synch call messages
 handle_call(get_new_chan, _From, S=#state{curid=I}) ->
-    ?DEBUG("BUILDING NEW CHANNEL: ~p",[I]),
     {CPID, NS} = build_handler( S ),
-    ?DEBUG("GOT CPID=~p~n",[CPID]),
     {reply, #chan{id=I,cpid=CPID}, NS};
 handle_call(Request, _From, State) ->
-    ?ERROR("Channel","Unknown Call: ~p",[Request]), {reply, ok, State}.
+    ?ERROR("Channel","Unknown Call: ~p",[Request]), 
+    {reply, ok, State}.
 
 %% @private
 %% @doc Handling async cast messages
