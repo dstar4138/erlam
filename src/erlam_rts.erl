@@ -75,6 +75,12 @@ safe_step( #process{ exp=F, env=E} = P ) ->
                   end)
     end.
 
+%% @doc Put the process to sleep in the scheduler for at least X seconds.
+safe_hang( X ) ->
+    Seconds = timer:seconds( X ),
+    timer:sleep( Seconds ), % TODO: This should modify the current RTS.
+    1.% Returns a valid Expression.
+
 
 %%%===================================================================
 %%% Private functionality
@@ -85,29 +91,27 @@ safe_step( #process{ exp=F, env=E} = P ) ->
 %%   by the interpreter via a loop.
 %% @end
 step( newchan, _ENV ) ->
-    Channel = #erlam_chan{ chan=erlam_chan_serve:get_new_chan() },
-    {stop, Channel};
+    ChannelID = erlam_chan_serve:get_new_chan(),
+    {stop, erlam_lang:new_chan( ChannelID )};
 step( #erlam_erl{} = E, _ENV ) -> {stop, E};
 step( #erlam_fun{} = F, _ENV ) -> {stop, F};
 step( #erlam_chan{} = C, _ENV ) -> {stop, C};
 step( N, _ENV ) when is_integer( N ) -> {stop, N};
 
 step( #erlam_var{name=N}, ENV ) ->
-    ?DEBUG("VAR:{~p,~p}~n",[N,ENV]),
     case lists:keyfind(N,1,ENV) of
         {N,V} -> {stop, V};
         false -> {error, badvar} 
     end;
 step( #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
     case is_value( E1 ) of
-        {true, 1} -> {ok, E2};
-        {true, _} -> {ok, E3};
+        {true, 0} -> {ok, E3};
+        {true, _} -> {ok, E2};
         false -> 
             {NV, NENV} = interstep( E1, ENV ), 
             {ok, IF#erlam_if{exp=NV}, NENV}
     end;
 step( #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
-    ?DEBUG("CHAN:{~p, ~p}~n",[C,E]),
     case is_value( C ) of
         {true, #erlam_chan{chan=Chan}} -> 
             (case is_value( E ) of
@@ -138,10 +142,11 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
             (case is_value( E2 ) of
                  {true, _} ->
                      (case V of
-                         nil_var -> {ok, E, ENV};
+                         nil_var -> {ok, E};%, ENV};
                          _ -> 
                             VarName = V#erlam_var.name,
-                            {ok, E, [{VarName,E2}|ENV]}
+                            {NewName, NewE} = check_and_clean(VarName, E, ENV),
+                            {ok, NewE, [{NewName,E2}|ENV]}
                       end);
                  false -> 
                      {NV, NENV} = interstep( E2, ENV ),
@@ -149,10 +154,8 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
              end);
         {true, #erlam_erl{arity=A,func=F}} ->
             (case is_value(E2) of
-                 {true, _} -> 
-                     IsRes = (case A of 1 -> stop; _ -> ok end),
-                     Res = (try F(E2) catch _:_ -> 0 end),
-                     {IsRes, Res};
+                 {true, _} ->
+                     step_erl( A, F, E2 ); 
                  false ->
                      {NV, NENV} = interstep( E2, ENV ),
                      {ok, App#erlam_app{exp2=NV}, NENV}
@@ -173,6 +176,61 @@ interstep( E, ENV ) ->
         {ok, NE, NENV} -> {NE, NENV};
         {stop, V} -> {V, ENV}
     end.
+
+%% @hidden
+%% @doc Assumes the Expression is a Value and will run the Erlang Function on
+%%   it. If the Arity is non-1 then it will repackage it into an erlam_erl
+%%   for reapplication to the next value.
+%% @end  
+step_erl( A, F, E ) ->
+    try 
+        Res = F(E), % Run the Function on the Expression.
+        case A of
+            1 -> 
+                (case erlam_lang:is_value( Res ) of
+                     true -> {stop, Res} % Assert it is a valid Built-In. 
+                 end);
+            _ -> {stop, erlam_lang:new_erl( A-1, Res )}
+        end
+    catch _:_ -> {stop, 0} end.
+
+%% @hidden
+%% @doc Check for the variable name in the Environment. If it exists, then 
+%%   we need to update all instances of the variable name in the Expression
+%%   with a new variable name.
+%% @end   
+check_and_clean( VarName, Exp, Env ) ->
+    case loopCheck( VarName, Env ) of
+        VarName -> {VarName, Exp};
+        Other -> {Other, loopClean(VarName, Other, Exp)}
+    end.
+loopCheck( V, L ) -> 
+    case lists:keysearch( V, 1, L ) of
+        {value,_} -> loopCheck( rand_atom( V ), L );
+        false     -> V
+    end.
+loopClean( O, N, Exp ) -> % Recursively clean old_Var with new_Var in Exp.
+    LC = fun(X) -> loopClean( O, N, X ) end,
+    case Exp of
+        #erlam_app{ exp1=E1, exp2=E2 } -> 
+            #erlam_app{exp1=LC(E1), exp2=LC(E2)};
+        #erlam_fun{ var=V, exp=E } ->
+            (case V of 
+                 #erlam_var{name=O} -> Exp; 
+                  _ -> #erlam_fun{var=V, exp=LC(E)}
+             end);
+        #erlam_if{exp=E,texp=T,fexp=F} ->
+            #erlam_if{exp=LC(E),texp=LC(T),fexp=LC(F)};
+        #erlam_swap{chan=C,val=E} ->
+            #erlam_swap{chan=LC(C),val=LC(E)};
+        #erlam_spawn{exp=E} ->
+            #erlam_spawn{exp=LC(E)};
+        #erlam_var{name=O} ->
+            #erlam_var{name=N};
+        _ -> Exp
+    end.
+rand_atom( V ) -> list_to_atom(atom_to_list(V)++"@").
+
 
 %%%===================================================================
 %%% Internal functions
@@ -209,13 +267,12 @@ get_exec() ->
     end.
 
 %% @hidden
-%% @doc Check that this AST representation cannot be stepped further.
+%% @doc Check that this AST representation cannot be stepped further. This
+%%  wraps the erlam_lang call for case pattern matching ease-of-use.
+%% @end 
 is_value( Exp ) ->
-    case Exp of
-        #erlam_erl{} -> {true, Exp};
-        #erlam_fun{} -> {true, Exp};
-        #erlam_chan{} -> {true, Exp};
-        N when is_integer(N) -> {true, N};
-        _ -> false
+    case erlam_lang:is_value( Exp ) of
+        true  -> {true, Exp};
+        false -> false
     end.
 

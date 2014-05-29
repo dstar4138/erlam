@@ -108,8 +108,16 @@ elib
 
     // Simulate Church Numeral given an Integer. This acts like a for-loop
     // in ErLam. It will reapply F to its result N times, starting with X
-    rep = _erl[1]{ fun(N) -> erlam_util:church(N) end };
-    unrep = _erl[1]{ fun(F) -> erlam_util:unchurch(F) end };
+    rep = _erl[1]{ fun(N) when is_integer( N ) ->
+                      F = erlam_lang:new_var( '_f' ),
+                      X = erlam_lang:new_var( '_x' ),
+                      Gen = lists:foldl( fun( _, Acc) ->
+                                            erlam_lang:new_app(F, Acc)
+                                         end,
+                                         X, lists:seq(1,N) ),
+                      erlam_lang:new_fun( F, erlam_lang:new_fun( X, Gen ) )
+                   end
+                 };
 
     // Simple Less than or Equal to 
     leq = _erl[2]{
@@ -247,7 +255,7 @@ elib
     // Hang (sleep) for X seconds
     hang = _erl[1]{
                 fun(X) when is_integer(X) ->
-                    erlam_util:hang(X)
+                    erlam_rts:safe_hang(X)
                 end
             };
 
@@ -264,7 +272,7 @@ elib
     // Hang (sleep) for random number of seconds from 1 to X inclusive
     rhang = _erl[1]{
                 fun(X) when is_integer(X) ->
-                    erlam_util:hang( random:uniform(X) )
+                    erlam_rts:safe_hang( random:uniform(X) )
                 end
             };
 bile
