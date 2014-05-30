@@ -75,6 +75,3 @@ is_value( _ ) -> false.
 %%%  Private Functionality
 %%% ==========================================================================
 
-%% @hidden
-%% @doc Generate a random atom. Used for generating random variables.
-

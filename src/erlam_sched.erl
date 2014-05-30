@@ -110,7 +110,7 @@
 %% A scheduler is a FSM. In classical scheduling we can be in a WAITING, 
 %% RUNNING, or BLOCKED status. So to be general for each simulated 'tick' we 
 %% call step at theoretically the same time on all schedulers.
--callback step( scheduler_status(), scheduler_state(), message_queue() ) -> 
+-callback tick( scheduler_status(), scheduler_state(), message_queue() ) -> 
                     {ok, scheduler_status(), scheduler_state()} |
                     {stop, scheduler_state()}. 
 

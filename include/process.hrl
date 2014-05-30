@@ -18,6 +18,12 @@
    exp    :: term(),
    env=[] :: [{atom(),term()}],
 
+   %% Hangtime and initial timestamp. When a process randomly asks to be
+   %% rescheduled at a later time. Note the 'hangtime' is thus a suggested
+   %% minimum (unless the particular scheduler implementation makes an extra
+   %% effort, such as a halt-the-world approach).
+   hang = {nil, nil} :: { nil | erlang:timestamp(), nil | pos_integer() },
+
    %% Schedulers may want to store internal state in a process for quick 
    %% evaluation. This is the feild where it will be stored.
    notes  :: any()
@@ -30,5 +36,8 @@
 -define(set_notes(P,N),P#process{notes=N}).
 -define(is_primary(P),P#process.resrep/=nil).
 -define(set_primary(P),P#process{resrep=self()}).
+-define(set_hangtime(P,T,H),P#process{hang={T,H}}).
+-define(get_timestamp(P),element(1,P#process.hang)).
+-define(get_hangfortime(P),element(2,P#process.hang)).
 
 -type erlam_process() :: #process{}.

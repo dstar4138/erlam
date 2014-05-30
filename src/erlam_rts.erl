@@ -12,6 +12,7 @@
 
 % PUBLIC
 -export([setup/2,breakdown/0,safe_spawn/1,safe_spawn/2,safe_step/1]).
+-export([safe_hang/1]).
 
 % PRIVATE 
 -export([step/2]).
@@ -53,7 +54,7 @@ safe_spawn( Fun ) ->
 
 -spec safe_spawn( fun(), [tuple()] ) -> integer().
 safe_spawn( Fun, ENV ) ->
-    ?DEBUG("SPAWN: ~p, ~p~n",[Fun, ENV]), 
+%    ?DEBUG("SPAWN: ~p, ~p~n",[Fun, ENV]), 
     case erlam_sched:spawn( Fun, ENV ) of
         ok         -> erlam_state:inc_processes(),   1;
         {error, E} -> ?DEBUG("Spawn Error: ~p",[E]), 0
@@ -71,16 +72,19 @@ safe_step( #process{ exp=F, env=E} = P ) ->
                       {ok, Next} -> {ok, P#process{exp=Next}};
                       {ok, Next, NE} -> {ok, P#process{exp=Next,env=NE}};
                       {stop, Val} -> {stop, P#process{exp=Val}};
+                      {stop, Val, Sleep} -> 
+                          Hang = {os:timestamp(), Sleep},
+                          {stop, P#process{exp=Val,hang=Hang}};
                       {error, Reason} -> {error, Reason}
                   end)
     end.
 
 %% @doc Put the process to sleep in the scheduler for at least X seconds.
+-spec safe_hang( pos_integer() ) -> 1.
 safe_hang( X ) ->
     Seconds = timer:seconds( X ),
-    timer:sleep( Seconds ), % TODO: This should modify the current RTS.
-    1.% Returns a valid Expression.
-
+    ?DEBUG("SLEEPING: ~p~n",[Seconds]),
+    throw({sleep, Seconds}). %Handled upon return of step/2,
 
 %%%===================================================================
 %%% Private functionality
@@ -88,7 +92,8 @@ safe_hang( X ) ->
 
 %% @private
 %% @doc Evaluate a single step of the erlam process. This is also utilized
-%%   by the interpreter via a loop.
+%%   by the interpreter via a loop. This is really gross, so I only wanted to
+%%   do it once.
 %% @end
 step( newchan, _ENV ) ->
     ChannelID = erlam_chan_serve:get_new_chan(),
@@ -108,8 +113,10 @@ step( #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
         {true, 0} -> {ok, E3};
         {true, _} -> {ok, E2};
         false -> 
-            {NV, NENV} = interstep( E1, ENV ), 
-            {ok, IF#erlam_if{exp=NV}, NENV}
+            (case interstep( E1, ENV ) of
+                {NV,NENV}       -> {ok, IF#erlam_if{exp=NV}, NENV};
+                {NV,_,Sleep} -> {stop, IF#erlam_if{exp=NV}, Sleep}
+            end)
     end;
 step( #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
     case is_value( C ) of
@@ -117,24 +124,30 @@ step( #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
             (case is_value( E ) of
                  {true, _} -> {ok, erlam_chan:swap( Chan, E )};
                  false -> 
-                     {NV, NENV} = interstep( E, ENV ),
-                     {ok, Swap#erlam_swap{val=NV}, NENV}
+                     (case interstep( E, ENV ) of
+                          {NV,NENV}       -> {ok, Swap#erlam_swap{val=NV}, NENV};
+                          {NV,_,Sleep} -> {stop, Swap#erlam_swap{val=NV}, Sleep}
+                      end)
              end);
         {true, Unknown} -> 
             {error, {badchan, Unknown}};
         false ->
-            {NV, NENV} = interstep( C, ENV ),
-            {ok, Swap#erlam_swap{chan=NV}, NENV}
+            (case interstep( C, ENV ) of
+                 {NV,NENV} -> {ok, Swap#erlam_swap{chan=NV}, NENV};
+                 {NV,_,Sleep} -> {stop, Swap#erlam_swap{chan=NV}, Sleep}
+            end)
     end;
 step( #erlam_spawn{exp=E}=Spawn, ENV ) ->
     case is_value( E ) of
         {true, #erlam_fun{}} ->
             {stop, erlam_rts:safe_spawn( E, ENV )};
-        {true, _} -> 
-            {stop, 0}; % We fake that the error happened in the other thread.
+        {true, _} ->   % We fake that the error happened in the other thread,
+            {stop, 0}; %  because spawn errors out if it's not a unit-function.
         false -> 
-            {NV, NENV} = interstep( E, ENV ),
-            {ok, Spawn#erlam_spawn{exp=NV}, NENV}
+            (case interstep( E, ENV ) of
+                {NV,NENV} -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
+                {NV,_,Sleep} -> {stop, Spawn#erlam_spawn{exp=NV}, Sleep}
+            end)
     end;
 step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
     case is_value( E1 ) of
@@ -149,21 +162,27 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                             {ok, NewE, [{NewName,E2}|ENV]}
                       end);
                  false -> 
-                     {NV, NENV} = interstep( E2, ENV ),
-                     {ok, App#erlam_app{exp2=NV}, NENV}
+                     (case interstep( E2, ENV ) of
+                         {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
+                         {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
+                     end)
              end);
         {true, #erlam_erl{arity=A,func=F}} ->
             (case is_value(E2) of
                  {true, _} ->
-                     step_erl( A, F, E2 ); 
+                     step_erl( A, F, E2, ENV ); 
                  false ->
-                     {NV, NENV} = interstep( E2, ENV ),
-                     {ok, App#erlam_app{exp2=NV}, NENV}
+                     (case interstep( E2, ENV ) of
+                         {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
+                         {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
+                     end)
              end);
         {true, _} -> {error, badapp};
         false -> 
-            {NV, NENV} = interstep( E1, ENV ),
-            {ok, App#erlam_app{exp1=NV}, NENV}
+            (case interstep( E1, ENV ) of
+                 {NV, NENV} ->{ok, App#erlam_app{exp1=NV}, NENV};
+                 {NV, _, Sleep} -> {stop, App#erlam_app{exp1=NV}, Sleep}
+            end)
     end.
 
 %% @hidden
@@ -174,15 +193,16 @@ interstep( E, ENV ) ->
     case step( E, ENV ) of
         {ok, NE} -> {NE, ENV};
         {ok, NE, NENV} -> {NE, NENV};
-        {stop, V} -> {V, ENV}
+        {stop, V} -> {V, ENV};
+        {stop, V, Sleep} -> {V, ENV, Sleep}
     end.
 
 %% @hidden
 %% @doc Assumes the Expression is a Value and will run the Erlang Function on
 %%   it. If the Arity is non-1 then it will repackage it into an erlam_erl
 %%   for reapplication to the next value.
-%% @end  
-step_erl( A, F, E ) ->
+%% @end
+step_erl( A, F, E, Env ) ->
     try 
         Res = F(E), % Run the Function on the Expression.
         case A of
@@ -192,7 +212,13 @@ step_erl( A, F, E ) ->
                  end);
             _ -> {stop, erlam_lang:new_erl( A-1, Res )}
         end
-    catch _:_ -> {stop, 0} end.
+    catch 
+        throw:{sleep,Time} -> % The function can safely hang by throwing
+                              % A custom exception. We will return a special
+                              % Event attached to the 'stop' request.   
+            {stop, 1, Time};
+        _:_ -> {stop, 0} 
+    end.
 
 %% @hidden
 %% @doc Check for the variable name in the Environment. If it exists, then 

@@ -16,7 +16,6 @@
 -export([interpret/2]).
 
 -define(FREE_BUFFER,"").
--define(ANY_ERROR,_:_).
 
 %%% ======================================================================
 %%% Public Shell Operations
@@ -35,7 +34,7 @@ shell( _Opts ) ->
 %% @hidden
 %% @doc Opposite of start_minimum_rts/0. Will stop the shell's loop too.
 stop_shell()->
-    erlam_chan:stop(),
+    erlam_chan_serve:stop(),
     io:format("Good bye!~n").
 
 %% @hidden
@@ -86,7 +85,7 @@ do_interpret( State, String ) ->
             interpret( State, Content ),
             ?FREE_BUFFER;
         false -> 
-            String
+            String %return String as new buffer.
     end.
 
 %% @private
@@ -99,11 +98,12 @@ interpret( State, StringContent ) ->
         {ok, ExprTree} = erlam_parser:parse( Tokens ),
         AST = State( ExprTree ), 
         run_ast( AST )
-    %catch ?ANY_ERROR ->
-    catch E:V ->
-        X = erlang:get_stacktrace(),
-        io:format("~p:~p~n~p~n",[E,V,X]),
-        io:format("ERROR: Syntax error, please balance all parens.~n",[])
+    catch 
+        error:{badmatch,_} -> % Typically caused by parser, assume syntax issue 
+            io:format("ERROR: Syntax error, please balance all parens.~n",[]);
+        E:V -> % Unknown error, Print debug information
+            io:format("ERROR: Unknown error occured. Debug information follows.~n"),
+            io:format("~p:~p~n~p~n",[E,V,erlang:get_stacktrace()])
     end.
 
 %% @private
@@ -111,10 +111,9 @@ interpret( State, StringContent ) ->
 %%   stepping process the RTS uses, and then pretty prints the resulting value.
 %% @end
 run_ast( AST ) ->
-   io:format("~p~n",[AST]),
+%   ?DEBUG("~p~n",[AST]),
    Result = stepall( AST ), 
-   pp_ast( Result ),
-   io:format("~n",[]).
+   pp_ast( Result ).
 
 %% @hidden
 %% @doc Checks if a string ends in a ';'.
@@ -144,6 +143,9 @@ stepall( AST, ENV ) ->
         {ok, NextAST} -> stepall( NextAST, ENV );
         {ok, NAST, NENV} -> stepall( NAST, NENV );
         {stop, Val} -> {ok, Val};
+        {stop, Val, Sleep} -> % Instead of stopping, just hang and continue.
+            timer:sleep( Sleep ),
+            stepall( Val, ENV ); 
         {error, Reason} -> {error, Reason}
     end.
 
@@ -169,7 +171,16 @@ basic_spawn( #process{ exp = E, env=Env } ) ->
 
 %% @hidden
 %% @doc Pretty print channels and functions by observing internals.
-pp_ast( #erlam_fun{var=N} ) -> io:format(",\(~p)->{...}",[N]);
-pp_ast( #erlam_chan{chan=C} ) -> io:format("[chan~p]",[C]);
-pp_ast( V ) -> io:format("~p",[V]).
+pp_ast( Expression ) -> io:format("~s~n", [bpp_ast( Expression )]).
+bpp_ast( #erlam_app{exp1=E1,exp2=E2} ) -> ["(", bpp_ast(E1), " ", bpp_ast(E2), ")"];
+bpp_ast( #erlam_if{exp=E,texp=T,fexp=F} ) ->
+    ["case (",bpp_ast(E),") of 0 => (",bpp_ast(F),"); _ => (",bpp_ast(T),") end"];
+bpp_ast( #erlam_fun{var=N,exp=E} ) -> ["(\\", bpp_ast(N), "->", bpp_ast(E), ")"];
+bpp_ast( #erlam_swap{chan=C,val=E} ) -> ["(",bpp_ast(C),")!(",bpp_ast(E),")"];
+bpp_ast( #erlam_erl{arity=A} ) -> ["[builtin/",integer_to_list(A),"]"];
+bpp_ast( #erlam_chan{chan=C} ) -> io_lib:format("[chan~p]",[C]);
+bpp_ast( #erlam_spawn{exp=E} ) -> ["^[",bpp_ast(E),"]^"];
+bpp_ast( #erlam_var{name=V}  ) -> atom_to_list(V);
+bpp_ast( nil_var ) -> "_";
+bpp_ast( V ) -> io_lib:format("~p",[V]).
 

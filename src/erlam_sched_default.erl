@@ -10,7 +10,7 @@
 -include("debug.hrl").
 
 % Erlam Scheduler Callbacks:
--export([layout/2, init/1, cleanup/1, step/3]).
+-export([layout/2, init/1, cleanup/1, tick/3, spawn_process/2]).
 
 % Default Scheduler's State:
 -record(state,{ processor :: integer(), 
@@ -55,13 +55,14 @@ cleanup( #state{ primary = true, mq = MQ } = State ) ->
 cleanup( _ ) -> ok.
 
 %% @doc Step through the system.
-step( X, Y, Z ) ->  
+tick( X, Y, Z ) ->  
     ?DEBUG("STEPPING(~p,~p,~p)~n",[X,Y,Z]),
     {ok, 'WAITING', Y}.
 %step( 'WAITING', State, [] ) -> {ok, 'WAITING', State};
 %step( 'WAITING', State, [{apply,Fun,Val}|T] ) -> 
 %    erlam_rts:reduce( Fun, Val ).
-    
+   
+spawn_process( A,B) -> ok.
 
 
 %%% ==========================================================================
