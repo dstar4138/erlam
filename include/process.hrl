@@ -9,7 +9,7 @@
    %% the value of it's evaluation upwards into the runtime system. This can
    %% be checked upon completion, if nil, then its value is discarded otherwise
    %% it signals the end of the program.
-   resrep :: nil | pid(),
+   resrep = nil :: nil | pid(),
 
    %% This is the stored expression to be evaluated in each instance of the 
    %% scheduler. This should be seen as a black box as far as the scheduler

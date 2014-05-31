@@ -35,7 +35,6 @@ setup( RTSOptions, Expression ) ->
     %% Intitialize the Schedulers and send the initial expression.
     erlam_sched:run( SchedOpts, Expression ).
 
-
 %% @doc Shutdown channel server, and schedulers.
 -spec breakdown() -> ok | {error, Reason :: any()}.
 breakdown() ->
@@ -44,14 +43,13 @@ breakdown() ->
     %% Then kill the channels.
     erlam_chan:stop().
 
-
 %% @doc Message scheduling system with new process, will return an ErLam 
 %%   integer for success checking.
 %% @end
 -spec safe_spawn( fun() ) -> integer().
-safe_spawn( Fun ) -> 
-    safe_spawn( Fun, [] ).
+safe_spawn( Fun ) -> safe_spawn( Fun, [] ).
 
+%% @doc Spawn a new process with a particular environment as it's closure,
 -spec safe_spawn( fun(), [tuple()] ) -> integer().
 safe_spawn( Fun, ENV ) ->
 %    ?DEBUG("SPAWN: ~p, ~p~n",[Fun, ENV]), 
@@ -202,7 +200,7 @@ interstep( E, ENV ) ->
 %%   it. If the Arity is non-1 then it will repackage it into an erlam_erl
 %%   for reapplication to the next value.
 %% @end
-step_erl( A, F, E, Env ) ->
+step_erl( A, F, E, _Env ) ->
     try 
         Res = F(E), % Run the Function on the Expression.
         case A of

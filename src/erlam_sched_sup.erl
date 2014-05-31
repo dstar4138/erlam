@@ -16,7 +16,7 @@
 %% Supervisor callbacks
 -export([init/1]).
 
--define(DEFAULT_SCHED_MOD, erlam_sched_default).
+-define(DEFAULT_SCHED_MOD, erlam_sched_single).%default).
 
 -define(CHILD(Id, Mod, Type, Args), {Id, {Mod, start_link, Args},
                                      permanent, 5000, Type, [Mod]}).
