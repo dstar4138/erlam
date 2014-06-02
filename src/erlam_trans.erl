@@ -1,125 +1,100 @@
-%%
-%% Translating AST to Erlang source code.
 %% 
+%% ErLam translations for IO
+%%
+%%  Converts the ErLam AST into either a Pretty-Print string or into raw
+%%  string.
+%%
 -module(erlam_trans).
--export([to_erl/1, to_forms/1]).
+
 -include("debug.hrl").
 -include("erlam_exp.hrl").
+-include("erlam_chan.hrl").
 
-% Cleans up some things.
--define(build(S), lists:concat(S)).
--define(error(Line, ErrMsg), {call, Line, {remote,Line, {atom,Line,erlang},
-                                                        {atom,Line,error},
-                                                        [ErrMsg]}}).
+-export([ast2pp/1, ast2src/1]).
+%-export([ast2erlsrc/1, ast2forms/1]).
 
-%% @doc Translate an ErLam AST into Erlang Source code. This is used within the 
-%%   ErLam Shell to quickly pass each expression through to the Erlang Shell.
+%% @doc Pretty print channels and functions by observing internals.
+ast2pp( Exp ) ->
+    Defs = [ { nil_var,     fun() -> "_" end },
+             { newchan,     fun() -> "newchan" end},
+             { integer,     fun integer_to_list/1 },
+             { function,    fun(_) -> "..." end },
+             { erlam_var,   fun atom_to_list/1 },
+             { erlam_spawn, fun(E) -> ["^[",E,"]^"] end },
+             { erlam_chan,  fun(C) -> ["[chan",C,"]"] end },
+             { erlam_erl,   fun(A,_) -> ["[builtin/",A,"]"] end },
+             { erlam_swap,  fun(C,V) -> ["(",C,")!(",V,")"] end }, 
+             { erlam_fun,   fun(X,E) ->  ["(\\",X,"->",E,")"] end },
+             { erlam_app,   fun(E1,E2) -> [ "(",E1," ",E2,")"] end }, 
+             { erlam_if,    fun(E,T,F) -> ["case (",E,") of 0 => (",F,
+                                                "); _ => (",T,") end"] end } ],
+    rast( Exp, Defs ).
+
+
+%% @doc Convert the AST to it's string form. This includes the Erlang source
+%%   code in the #erlam_erl{} object.
 %% @end  
--spec to_erl( erlam_ast() ) -> string().
-to_erl( AST ) ->
-    % Thread Variable Lookup-Dictionary through
-    to_erl( AST, dict:new() ).
+ast2src( Exp ) ->
+    Defs = [ { nil_var, fun() -> "nil_var" end },
+             { newchan, fun() -> "newchan" end },
+             { integer, fun integer_to_list/1 },
+             { function, fun erl2src/1 },
+             { erlam_var, fun(V) -> ["{erlam_var,",atom_to_list(V),"}"] end },
+             { erlam_spawn, fun(E) -> ["{erlam_spawn,",E,"}"] end },
+             { erlam_chan,  fun(C) -> ["[erlam_chan,",C,"}"] end },
+             { erlam_erl,   fun(A,F) -> ["{erlam_erl,",A,",",F,"}"] end },
+             { erlam_swap,  fun(C,V) -> ["{erlam_swap,",C,",",V,"}"] end }, 
+             { erlam_fun,   fun(X,E) ->  ["{erlam_fun,",X,",",E,"}"] end },
+             { erlam_app,   fun(E1,E2) -> ["{erlam_app,",E1,",",E2,"}"] end }, 
+             { erlam_if,    fun(E,T,F) -> ["{erlam_if,",E,",",T,",",F,"}"] end }],
+    rast( Exp, Defs ).
 
-to_erl( N, _ ) when is_integer( N ) -> erlang:integer_to_list(N);
-to_erl( newchan, _ ) -> "erlam_chan_serve:get_new_chan()";
-to_erl( nil_var, _ ) -> "_";
-to_erl( #erlam_var{ name=X }, Vs ) -> 
-    case dict:find( X, Vs ) of
-        {ok, Val} -> Val;
-        error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
-    end;
-to_erl( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) -> 
-    ?build(["{appfun,",to_erl(E1,Vs), ",", to_erl(E2,Vs),"}"]);
-to_erl( #erlam_if{ exp=Pred, texp=T, fexp=F }, Vs ) ->
-    ?build(["case (",to_erl(Pred,Vs),") of 0 -> (",
-                to_erl(F,Vs),"); _ -> (",to_erl(T,Vs),") end"]);
-to_erl( #erlam_swap{ chan=C, val=V }, Vs ) ->
-    ?build(["erlam_chan:swap(",to_erl(C,Vs),",", to_erl(V,Vs),")"]);
-to_erl( #erlam_chan{ chan=N }, _ ) -> 
-    ?build(["{chan, ", erlang:integer_to_list(N),"}"]);
-to_erl( #erlam_spawn{ exp=E }, Vs ) ->
-    ?build(["erlam_rts:safe_spawn(", to_erl(E,Vs), ")"]);
-to_erl( #erlam_fun{var=V, exp=E}, Vs ) ->
-    {ok, X, NVars} = gen_new_var(V,Vs),
-    ?build(["fun(",X,") -> (",to_erl(E,NVars),") end"]);
-to_erl( #erlam_erl{ func=F }, _ ) -> F.
-
-
-%% @doc Converts the Erlam AST into the internal Erlang Abstract Form. This 
-%%   Can later be used to look closer at the CORE Erlang and to compile from.
-%% @end  
--spec to_forms( erlam_ast() ) -> {ok, erl_parse:abstract_form()} |
-                                 {error, any()}.
-to_forms( AST ) -> 
-    case to_forms( AST, dict:new() ) of
-        {error, Err} -> {error, Err};
-        Tree -> {ok, erl_syntax:revert( Tree )}
-    end.
-
-to_forms( N,  _ ) when is_integer( N ) ->
-    erl_syntax:integer(N);
-to_forms( newchan, _ ) ->
-    erl_syntax:application( erl_syntax:atom( erlam_chan_serve ),
-                            erl_syntax:atom( gen_new_chan ),
-                            [] );
-to_forms( nil_var, _ ) -> 
-    erl_syntax:variable( '_' );
-to_forms( #erlam_var{ name=X}, Vs ) ->
-    case dict:find( X, Vs ) of
-        {ok, Val} -> erl_syntax:variable( Val );
-        error -> ?ERROR("Translation","unknown var: ~p(~p)~n",[X,Vs])
-    end;
-to_forms( #erlam_app{ exp1=E1, exp2=E2 }, Vs ) ->
-    erl_syntax:tuple([ erl_syntax:atom( appfun ),
-                       to_forms( E1, Vs ),
-                       to_forms( E2, Vs )
-                     ]);
-to_forms( #erlam_if{ exp=Pred, texp=T, fexp=F }, Vs ) ->
-    erl_syntax:case_expr( to_forms(Pred, Vs), [
-        erl_syntax:clause( [erl_syntax:integer(0)], [], [to_forms( F, Vs )] ),
-        erl_syntax:clause( [erl_syntax:variable('_')], [], [to_forms( T, Vs )] )
-    ]);
-to_forms( #erlam_swap{ chan=C, val=V }, Vs ) ->
-    erl_syntax:application( erl_syntax:atom( erlam_chan ),
-                            erl_syntax:atom( swap ),
-                            [ to_forms(C, Vs), to_forms(V,Vs) ] );
-to_forms( #erlam_chan{ chan=N }, _ ) ->
-    erl_syntax:tuple([ erl_syntax:atom( chan ),
-                       erl_syntax:integer( N ) ]); 
-to_forms( #erlam_spawn{ exp=E }, Vs ) ->
-    SubForms = to_forms( E, Vs ),
-    erl_syntax:application( erl_syntax:atom( erlam_rts ),
-                            erl_syntax:atom( safe_spawn ),
-                            [ SubForms ] );
-to_forms( #erlam_fun{var=V, exp=E}, Vs ) ->
-    {ok, X, NVars} = gen_new_var(V,Vs),
-    erl_syntax:fun_expr( [
-        erl_syntax:clause( [erl_syntax:variable(X)], [], [to_forms(E,NVars)] )
-                         ] );
-to_forms( #erlam_erl{ func=F }, _ ) ->
-    case erl_scan:string( F ) of
-        {ok, Tokens, _EndLoc} -> 
-            (case erl_parse:parse_form( Tokens ) of
-                 {ok, AbsForm}  -> AbsForm;
-                 {error, Error} -> {error, Error}
-             end);
-        {error, Error} -> {error, Error}
-            
-    end.
-
-
-%% ==========================================================================
-%% Private Functions
-%% ==========================================================================
+%%% ==========================================================================
+%%% Recursive abstraction over ErLam AST
+%%% ==========================================================================
 
 %% @hidden
-%% @doc Generates a new variable for each one it comes across.
--spec gen_new_var( erlam_var(), dict() ) -> {ok, string(), dict()}.
-gen_new_var( nil_var, Vars ) -> {ok, "_", Vars};
-gen_new_var( #erlam_var{name=V}, Vars ) ->
-    X = case dict:find(V, Vars) of
-            error -> ?build(["I_",erlang:atom_to_list(V)]);
-            {ok, Name} -> ?build([Name,"_u"])
-        end,
-    {ok, X, dict:store(V,X,Vars)}.
-    
+%% @doc Loops through the AST and performs type lookups for n
+%%  but will otherwise recurse to implement the rest.
+%% @end 
+-spec rast( erlam_ast(), [{atom(), fun((...)->string())} ] ) -> string().
+rast( nil_var, Funcs ) -> a( l( nil_var, Funcs ), [] );
+rast( newchan, Funcs ) -> a( l( newchan, Funcs ), [] );
+rast( I, Funcs ) when is_integer(I) -> a( l( integer, Funcs ), [I] );
+rast( Fun, Funcs ) when is_function(Fun) -> a( l( function, Funcs ), [ Fun ] );
+rast( #chan{id=ID}, Funcs ) -> a( l( integer, Funcs ), [ID]);
+rast( #erlam_var{name=Var}, Funcs ) -> 
+    a( l( erlam_var, Funcs ), [Var]);
+rast( #erlam_app{exp1=E1,exp2=E2}, Funcs ) -> 
+    a( l( erlam_app, Funcs ), [ rast(E1, Funcs), rast(E2, Funcs) ] );
+rast( #erlam_if{exp=E, texp=T, fexp=F}, Funcs ) ->
+    a( l( erlam_if, Funcs ),  [rast( E, Funcs ), rast(T, Funcs), rast(F, Funcs)] );
+rast( #erlam_swap{chan=C, val=V}, Funcs ) ->
+    a( l( erlam_swap, Funcs ), [ rast(C, Funcs), rast(V, Funcs) ] );
+rast( #erlam_spawn{exp=E}, Funcs ) ->
+    a( l( erlam_spawn, Funcs), [ rast(E, Funcs) ] );
+rast( #erlam_fun{var=V,exp=E}, Funcs ) ->
+    a( l( erlam_fun, Funcs ), [ rast(V, Funcs), rast(E, Funcs) ] );
+rast( #erlam_chan{chan=C}, Funcs ) ->
+    a( l( erlam_chan, Funcs ), [ rast(C, Funcs) ] );
+rast( #erlam_erl{arity=I,func=F}, Funcs ) ->
+    a( l( erlam_erl, Funcs ), [ rast(I,Funcs), rast(F,Funcs) ] ).
+
+%% @hidden
+%% @doc Shorthand for function application to a list of arguments.
+a( F, A ) -> erlang:apply( F, A ).
+
+%% @hidden
+%% @doc Shorthand for proplist lookup and providing a default result.
+l( T, L ) -> proplists:get_value( T, L ).
+
+
+%% @hidden
+%% @doc Convert erlang source code into it's raw string again.
+erl2src( ErlCode ) ->
+    {env, Env} = erlang:fun_info( ErlCode, env ),
+    [AST|_] = lists:reverse( Env ),
+    List = erl_syntax:form_list( AST ),
+    Exp = erl_prettypr:format( List ),
+    ["fun ",Exp," end"]. % Not sure why prettypr forgets surrounding fun/end?
+

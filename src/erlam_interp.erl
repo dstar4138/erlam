@@ -11,7 +11,6 @@
 
 %% PUBLIC
 -export([shell/1]).
--export([pp_ast/1]).
 
 %% PRIVATE
 -export([interpret/2]).
@@ -112,9 +111,9 @@ interpret( State, StringContent ) ->
 %%   stepping process the RTS uses, and then pretty prints the resulting value.
 %% @end
 run_ast( AST ) ->
-%   ?DEBUG("~p~n",[AST]),
    Result = stepall( AST ), 
-   pp_ast( Result ).
+   PPAST = erlam_trans:pp_ast( Result ),
+   io:format("~s~n",[PPAST]).
 
 %% @hidden
 %% @doc Checks if a string ends in a ';'.
@@ -169,19 +168,4 @@ check_msgs() ->
 %% @end
 basic_spawn( #process{ exp = E, env=Env } ) ->
    erlang:spawn( fun() -> stepall(#erlam_app{ exp1=E, exp2=0 }, Env) end ).
-
-%% @hidden
-%% @doc Pretty print channels and functions by observing internals.
-pp_ast( Expression ) -> io:format("~s~n", [bpp_ast( Expression )]).
-bpp_ast( #erlam_app{exp1=E1,exp2=E2} ) -> ["(", bpp_ast(E1), " ", bpp_ast(E2), ")"];
-bpp_ast( #erlam_if{exp=E,texp=T,fexp=F} ) ->
-    ["case (",bpp_ast(E),") of 0 => (",bpp_ast(F),"); _ => (",bpp_ast(T),") end"];
-bpp_ast( #erlam_fun{var=N,exp=E} ) -> ["(\\", bpp_ast(N), "->", bpp_ast(E), ")"];
-bpp_ast( #erlam_swap{chan=C,val=E} ) -> ["(",bpp_ast(C),")!(",bpp_ast(E),")"];
-bpp_ast( #erlam_erl{arity=A} ) -> ["[builtin/",integer_to_list(A),"]"];
-bpp_ast( #erlam_chan{chan=C} ) -> io_lib:format("[chan~p]",[C]);
-bpp_ast( #erlam_spawn{exp=E} ) -> ["^[",bpp_ast(E),"]^"];
-bpp_ast( #erlam_var{name=V}  ) -> atom_to_list(V);
-bpp_ast( nil_var ) -> "_";
-bpp_ast( V ) -> io_lib:format("~p",[V]).
 

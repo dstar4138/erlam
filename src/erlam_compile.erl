@@ -37,28 +37,25 @@ file( Path, Options ) ->
 %%% Compile Hook Functions
 %%% ==========================================================================
 
-%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to Erlang Abstract Forms. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
 %% @end  
 to_forms( AST, Options ) ->
-    case erlam_trans:to_forms( AST ) of
+    case erlam_trans:ast2forms( AST ) of %TODO: Not Implemented!
         {ok, Forms} -> save_or_return( Forms, fun t2s/1, ".forms", Options );
         Err -> reportize( "Compiling Abstract Forms Failed", Err )
     end.
 
-%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to raw Erlang Source code. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
 %% @end  
 to_erl( AST, Options ) ->
-    Source = erlam_trans:to_erl( AST ),
+    Source = erlam_trans:ast2erlsrc( AST ), %TODO: Not Implemented!
     ID = fun(X)-> inject_module( wrap_for_source(X), Options ) end,
     save_or_return(Source, ID, ".erl", Options). 
 
-%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to an Erlang BEAM Module. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
@@ -81,8 +78,7 @@ to_beam( AST, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_escript( AST, Options ) ->
-    %{ok, Erl} = to_erl(AST, []),
-    Erl = io_lib:format("~p",[AST]), %Get tuplized string of AST for RTS.
+    Erl = erlam_trans:ast2src(AST), %Get tuplized string of AST for RTS.
     Source = wrap_for_source( Erl ),
     Sections = [shebang, comment, {emu_args, 
                                     "+sbt s "++          % Max bind schedulers
@@ -152,9 +148,9 @@ display_report([Report|R], Opts) -> % TODO: Check verbosity options
 %%   Forms, and a standalone Escript.
 %% @end  
 push_to_files( AST, Options ) ->
-  [ check_then_run( to_forms, Options, AST ),
-    check_then_run( to_erl, Options, AST ),
-    check_then_run( to_beam, Options, AST ),
+  [ %check_then_run( to_forms, Options, AST ), %TODO: TURNED OFF DUE TO MISSING TRANSLATION FUNCTIONS.
+    %check_then_run( to_erl, Options, AST ),
+    %check_then_run( to_beam, Options, AST ),
     check_then_run( to_escript, Options, AST) ].
 
 %% @hidden 
