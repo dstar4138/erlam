@@ -32,7 +32,7 @@ start_link( ID ) ->
 
 %% @doc Given a channel, hang until another process swaps with you.
 -spec swap( #chan{}, erlam_val(), reference() ) -> blocked | erlam_val().
-swap( #chan{cpid=CPID}, Val, ProcessID ) -> 
+swap( #chan{cpid=CPID}, Val, ProcessID ) ->
     gen_server:call(CPID, {swap, Val, ProcessID}, infinity).
 
 %% @doc Checks to make sure it is a valid 
@@ -66,8 +66,9 @@ handle_call({swap, MyVal, Me}, _, State = #state{curval={V, D}}) ->
                 unblocked ->
                     NewCur ={ {Me, MyVal}, D },
                     {reply, blocked, State#state{curval=NewCur}};
+                {Me, _} -> {reply, blocked, State};
                 {Other, OtherVal} ->
-                     NewCur = { unblocked, dict:store( Other, MyVal, D ) },
+                    NewCur = { unblocked, dict:store( Other, MyVal, D ) },
                     {reply, OtherVal, State#state{curval=NewCur}}
             end)
     end;

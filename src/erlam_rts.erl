@@ -142,7 +142,11 @@ step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
 step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
     case is_value( E ) of
         {true, #erlam_fun{}} ->
-            {stop, erlam_rts:safe_spawn( E, ENV )};
+            %% Valid Spawn of a function to another process. We keep to 
+            %% semantics and will turn this expression into an application with
+            %% nil. Which kickstarts the evaluation into the function.
+            AppFun = #erlam_app{ exp1=E, exp2=0},
+            {stop, erlam_rts:safe_spawn( AppFun, ENV )};
         {true, _} ->   % We fake that the error happened in the other thread,
             {stop, 0}; %  because spawn errors out if it's not a unit-function.
         false -> 

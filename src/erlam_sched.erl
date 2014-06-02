@@ -169,9 +169,7 @@ get_id() -> get( ?PD_LPU_ID ).
 
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
-    when is_pid( ResultAcceptor ) -> 
-    ?DEBUG("RETURN(~p) VALUE: ~p~n",[ResultAcceptor, Val]),
-    ResultAcceptor!{result,Val}.
+    when is_pid( ResultAcceptor ) -> ResultAcceptor!{result,Val}.
 
 %%% ==========================================================================
 %%% Private Scheduler Process API

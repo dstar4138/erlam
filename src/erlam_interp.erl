@@ -112,7 +112,7 @@ interpret( State, StringContent ) ->
 %% @end
 run_ast( AST ) ->
    Result = stepall( AST ), 
-   PPAST = erlam_trans:pp_ast( Result ),
+   PPAST = erlam_trans:ast2pp( Result ),
    io:format("~s~n",[PPAST]).
 
 %% @hidden
@@ -167,7 +167,5 @@ check_msgs() ->
 %%   care of it.
 %% @end
 basic_spawn( #process{ exp = E, env=Env, proc_id=ProcID } ) ->
-   erlang:spawn( fun() -> 
-                    stepall(ProcID, #erlam_app{ exp1=E, exp2=0 }, Env) 
-                 end ).
+   erlang:spawn( fun() -> stepall(ProcID, E, Env) end ).
 

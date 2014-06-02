@@ -58,7 +58,7 @@ tick( _Status, #internal_state{ cur_reduc=R }=State ) ->
 %%   state.
 %% @end
 spawn_process( Process, #internal_state{procs=P} = State ) ->
-    ?DEBUG("PROCESS SPAWN: ~p~n",[Process]),
+%    ?DEBUG("PROCESS SPAWN: ~p~n",[Process]),
     {ok, State#internal_state{procs=queue:in( Process, P )}}.
 
 %%% ==========================================================================
@@ -80,8 +80,8 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
 
 %% @hidden
 %% @doc Perform a reduction.
-reduce( #internal_state{ cur_proc=P, cur_reduc=R } = State ) ->
-    ?DEBUG("TICK: ~p:~s~n",[R,?inspect(P)]),
+reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=_Ps } = State ) ->
+%    ?DEBUG("TICK: ~p(~p):~s~n",[R,queue:len(_Ps),?inspect(P)]),
     case erlam_rts:safe_step(P) of
         {ok,NP} -> {ok, 'RUNNING', State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
