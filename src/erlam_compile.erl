@@ -37,6 +37,7 @@ file( Path, Options ) ->
 %%% Compile Hook Functions
 %%% ==========================================================================
 
+%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to Erlang Abstract Forms. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
@@ -47,6 +48,7 @@ to_forms( AST, Options ) ->
         Err -> reportize( "Compiling Abstract Forms Failed", Err )
     end.
 
+%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to raw Erlang Source code. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
@@ -56,6 +58,7 @@ to_erl( AST, Options ) ->
     ID = fun(X)-> inject_module( wrap_for_source(X), Options ) end,
     save_or_return(Source, ID, ".erl", Options). 
 
+%%% DOES NOT WORK WITH NEW RTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc Takes an internal AST and converts it to an Erlang BEAM Module. If the
 %%   option `path' is present, then it will save the forms to a new file along-
 %%   side the file in `path'.
@@ -78,7 +81,8 @@ to_beam( AST, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_escript( AST, Options ) ->
-    {ok, Erl} = to_erl(AST, []),
+    %{ok, Erl} = to_erl(AST, []),
+    Erl = io_lib:format("~p",[AST]), %Get tuplized string of AST for RTS.
     Source = wrap_for_source( Erl ),
     Sections = [shebang, comment, {emu_args, 
                                     "+sbt s "++          % Max bind schedulers

@@ -41,7 +41,7 @@ breakdown() ->
     %% Wait for the stopping of all global monitors
     erlam_state:stop(),
     %% Then kill the channels.
-    erlam_chan:stop().
+    erlam_chan_serve:stop().
 
 %% @doc Message scheduling system with new process, will return an ErLam 
 %%   integer for success checking.

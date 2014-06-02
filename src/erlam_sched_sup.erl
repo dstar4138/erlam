@@ -6,6 +6,7 @@
 %%% @author Alexander Dean
 -module(erlam_sched_sup).
 -behaviour(supervisor).
+-include("debug.hrl").
 
 %% RTS API
 -export([startup/1]).
@@ -29,9 +30,7 @@
 startup( Options ) ->
     {PrimaryID, Children} = generate_children( Options ),
     case start_link( Children ) of
-        {ok, _Pid} -> 
-            erlam_sched:init_ack(),
-            {ok, PrimaryID};
+        {ok, _Pid} ->{ok, PrimaryID};
         ignore -> {error, rts_failure};
         {error,R} -> {error, R}
     end. 
@@ -51,7 +50,7 @@ start_link( Children ) ->
 %% @end  
 init( Children ) ->
     process_flag( trap_exit, true ),
-    {ok, {{one_for_one, 5, 10}, Children}}.
+    {ok, {{one_for_all, 5, 10}, Children}}.
 
 %%%===================================================================
 %%% Internal functions

@@ -11,6 +11,7 @@
 
 %% PUBLIC
 -export([shell/1]).
+-export([pp_ast/1]).
 
 %% PRIVATE
 -export([interpret/2]).

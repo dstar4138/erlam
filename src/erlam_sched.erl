@@ -52,6 +52,7 @@
 run( SchedOpts, Expression ) ->
     {ok, PrimaryProcID} = erlam_sched_sup:startup( SchedOpts ),
     spawn_to_primary(PrimaryProcID, Expression),
+    init_ack(), %% Trigger the start of computation.
     hang_for_result(). % Sleep until result message.
 
 %% @doc Spawn an Erlam function as a new process using the loaded scheduling
@@ -77,7 +78,6 @@ spawn( Fun, Env ) -> self() ! {sched_spawn, ?new_process( Fun, Env )}, ok.
 %%   processor with a given implementation.
 %% @end  
 start_link( ProcID, SchedulerModule, Options ) -> 
-    ?DEBUG("STARTING: ~p~n",[{ProcID,SchedulerModule,Options}]),%%XXX: REMOVE
     case validate_options( Options ) of
         ok  ->
             Starter = self(), % This behaviour works like most gen_*, and forces
@@ -169,7 +169,9 @@ get_id() -> get( ?PD_LPU_ID ).
 
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
-    when is_pid( ResultAcceptor ) -> ResultAcceptor!{result,Val}.
+    when is_pid( ResultAcceptor ) -> 
+    ?DEBUG("RETURN(~p) VALUE: ~p~n",[ResultAcceptor, Val]),
+    ResultAcceptor!{result,Val}.
 
 %%% ==========================================================================
 %%% Private Scheduler Process API
@@ -219,14 +221,14 @@ server_entry( Starter ) ->
             % startup of the scheduler system. We can now run the loop.
             % However at this point, it will wait until the scheduler 
             % supervisor triggers the finish of init mode.
-            put(?PD_STATUS, running),
             proc_lib:init_ack( Starter, {ok, self()} ),
             hang_for_fin_init(),
-            server_loop( ImplState );
+            put(?PD_STATUS, running),
+            server_loop( startup, ImplState );
         {stop, Reason} -> 
             % Bad initialization, return error
             proc_lib:init_ack( Starter, {error, Reason}),
-            server_stop( [] ) % Passing [] as default ImplementationState.
+            exit({error, Reason})
     end.
 
 %% @hidden
@@ -242,7 +244,7 @@ hang_for_fin_init() ->
 %% @end
 hang_for_result() ->
     receive 
-        {result, Value} -> 
+        {result, Value} ->
             Value;
         _Other -> 
             ?DEBUG("Got weird response to result manager: ~p~n", [_Other]),
@@ -253,12 +255,12 @@ hang_for_result() ->
 %% @doc This is the stepper loop process for the internal scheduling behaviour.
 %%   It handles calling the 'step' function and handling process updates.
 %% @end  
-server_loop( State ) ->
-    case internal_handle_msgs( State ) of
+server_loop( PrevStatus, ImplState ) ->
+    case internal_handle_msgs( ImplState ) of
         {stop, Updated1} -> server_stop( Updated1 );
-        {ok, Updated1} -> 
-            Updated2 = run_step( Updated1 ),
-            decide_future( Updated2 )
+        {ok, Updated1} ->
+            {NextStatus, Updated2} = run_tick( PrevStatus, Updated1 ),
+            decide_future( NextStatus, Updated2 )
     end.
 
 %% @hidden
@@ -278,10 +280,10 @@ run_init( ) ->
     case catch 
         erlang:apply( get(?PD_BEHAVE), init, [get(?PD_RAW_OPTS)] )
     of
-        {ok, State} -> {ok, State};
-        {warn, W, State} -> 
+        {ok, ImplState} -> {ok, ImplState};
+        {warn, W, ImplState} -> 
             erlam_rts:logger( warn, W ),
-            {ok, State};
+            {ok, ImplState};
         {error, E} ->
             erlam_rts:logger( error, E ),
             {stop, E};
@@ -292,9 +294,11 @@ run_init( ) ->
 
 %% @hidden
 %% @doc Wraps the behaviour call to the implemented scheduler.  
-run_step( {PrevStatus, ImplState} ) ->
-    case catch
-        erlang:apply( get(?PD_BEHAVE), step, [ PrevStatus, ImplState ] ) 
+run_tick( PrevStatus, ImplState ) ->
+    Res = ( 
+      catch
+        erlang:apply( get(?PD_BEHAVE), tick, [ PrevStatus, ImplState ] )
+    ),?DEBUG("FROM TICK: ~p~n",[Res]),case Res
     of 
         {ok, Status, Updated} -> 
             put( ?PD_STATUS_HIST, [Status|get(?PD_STATUS_HIST)] ), %Note: backwards
@@ -350,16 +354,19 @@ internal_handle_msgs( ImplState ) ->
     handle_internal_queue( ImplState, Queue ).
 flush_tmq( Queue, ProcID ) ->
     receive
-        {pg, _, _, {sched_internal, Msg}} -> 
+%        MSG -> ?DEBUG("RECV MSG ON ~p: ~p~n",[ProcID, MSG]), case MSG of %XXX
+        {pg_message, _, _, {sched_internal, Msg}} -> 
                         flush_tmq([Msg|Queue], ProcID);
-        {pg, _, _, {sched_internal, Msg, ProcID}} -> 
+        {pg_message, _, _, {sched_internal, Msg, ProcID}} -> 
                         flush_tmq([Msg|Queue], ProcID);
-        {pg, _, _, {sched_internal, _, _}} -> % No match on ProcID 
+        {pg_message, _, _, {sched_internal, _, _}} -> % No match on ProcID 
                         flush_tmq( Queue, ProcID );
         {sched_spawn, _}=Msg  -> 
                         flush_tmq([Msg|Queue], ProcID);
-        Other -> buffer(?PD_SMQ, Other),
+        Other -> 
+                 buffer(?PD_SMQ, Other),
                  flush_tmq(Queue, ProcID)
+%        end%XXX: REMOVE ME
     after 0 -> Queue end.
 handle_internal_queue( ImplState, [] ) -> {ok, ImplState};
 handle_internal_queue( ImplState, [H|R] ) ->
@@ -383,8 +390,8 @@ handle_internal_queue( ImplState, [H|R] ) ->
 %% @doc Checks the state determined by the stepper and message handlers, to 
 %%   determine whether to stop the scheduler, or continue stepping.
 %% @end
-decide_future( {stop,State} ) -> server_stop( State );
-decide_future( State )  -> server_loop( State ).
+decide_future( _, {stop,State} ) -> server_stop( State );
+decide_future( PrevStatus, State )  -> server_loop( PrevStatus, State ).
 
 %% @hidden
 %% @doc Join a process group. Wraps creation as well (in case it doesn't exist).
@@ -406,7 +413,8 @@ join_pg( Group ) ->
 spawn_to_primary( ProcessorID, Fun ) ->
     FakeEnv = [],
     Process = ?set_primary( ?new_process( Fun, FakeEnv ) ),
-    erlam_sched:send( ProcessorID, {sched_internal, spawn, Process} ).
+    Msg = {sched_internal, {sched_spawn, Process}, ProcessorID},
+    pg:send( ?SCHEDULER_GROUP, Msg ).
 
 
 %% @hidden

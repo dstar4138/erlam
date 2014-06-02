@@ -29,7 +29,7 @@
 %% @doc Return the Scheduler topology for this scheduler implementation. This
 %%   uses only Processor0, and will round robit on an internal work queue.
 %% @end
-layout( _CPUTop, _Opts ) -> 
+layout( _CPUTop, _Opts ) ->
     ProcID = 0,                % Bind Scheduler to Processor with ID = 0.
     Module = ?MODULE,          % Use the callbacks in this module for scheduling
     Opts = [ {primary,true},   % Set this scheduler as primary (for main function)
@@ -58,6 +58,7 @@ tick( _Status, #internal_state{ cur_reduc=R }=State ) ->
 %%   state.
 %% @end
 spawn_process( Process, #internal_state{procs=P} = State ) ->
+    ?DEBUG("PROCESS SPAWN: ~p~n",[Process]),
     {ok, State#internal_state{procs=queue:in( Process, P )}}.
 
 %%% ==========================================================================
@@ -67,10 +68,12 @@ spawn_process( Process, #internal_state{procs=P} = State ) ->
 %% @hidden
 %% @doc Implements the fair round-robin selection from the 'procs' queue.
 pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
+    ?DEBUG("NEXT PICK: ~p~n",[P]),
     {Selection, Queue} =
         case queue:out( P ) of
             {empty, _} -> %SHOULD NOT HAPPEN
-                ?ERROR("erlam_sched_single:pick_next","Scheduler Queue is empty!",[]),
+                ?ERROR("erlam_sched_single:pick_next",
+                                "Scheduler Queue is empty!",[]),
                 error(badarg);
             {{value,V},Q} -> {V,Q}
         end,
@@ -82,6 +85,7 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
 %% @hidden
 %% @doc Perform a reduction.
 reduce( #internal_state{ cur_proc=P, cur_reduc=R } = State ) ->
+    ?DEBUG("TICK: ~p:~p~n",[R,P]),
     case erlam_rts:safe_step(P) of
         {ok,NP} -> {ok, 'RUNNING', State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
@@ -92,16 +96,17 @@ check_if_halt_or_stop( Process, State ) ->
     case {?get_hangfortime( Process ), ?is_primary( Process ) } of
         %% If it finished and was the primary process, return it!
         {nil, true} -> 
-            erlam_sched:return( Process ); %will handle unwraping
+            erlam_sched:return( Process ), %will handle unwraping
+            {stop, State};
         %% If it finished and was not primary, then drop it and move to next
         {nil, false} -> 
-            {ok, 'RUNNING', State#internal_state{ cur_proc=nil, cur_reduc=0 }};
+            {ok, running, State#internal_state{ cur_proc=nil, cur_reduc=0 }};
         %% We are sleeping, so hang (stop the world style), and set reductions
         %% to zero (ignoring what they were before). Will push the process to
         %% the end of the queue.
         {T,_} -> 
             hang( T ),
-            {ok, 'RUNNING', State#internal_state{ cur_reduc=0 }}
+            {ok, running, State#internal_state{ cur_reduc=0 }}
     end.
 hang( Time ) -> timer:sleep( Time ).
 
