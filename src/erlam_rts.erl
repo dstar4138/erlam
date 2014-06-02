@@ -15,7 +15,7 @@
 -export([safe_hang/1]).
 
 % PRIVATE 
--export([step/2]).
+-export([step/3]).
 
 -define(DEFAULT_SCHED, []).
 -define(DEFAULT_STATE,  orddict:from_list([
@@ -63,10 +63,10 @@ safe_spawn( Fun, ENV ) ->
 -spec safe_step( erlam_process() ) -> {ok, erlam_process()} 
                                     | {stop, erlam_process()}
                                     | {error, Reason :: any()}.
-safe_step( #process{ exp=F, env=E} = P ) ->
+safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
     case ?is_blocked(P) of
         true -> {ok, P};
-        false -> (case step( F, E ) of
+        false -> (case step( ProcID, F, E ) of
                       {ok, Next} -> {ok, P#process{exp=Next}};
                       {ok, Next, NE} -> {ok, P#process{exp=Next,env=NE}};
                       {stop, Val} -> {stop, P#process{exp=Val}};
@@ -93,36 +93,40 @@ safe_hang( X ) ->
 %%   by the interpreter via a loop. This is really gross, so I only wanted to
 %%   do it once.
 %% @end
-step( newchan, _ENV ) ->
+step( _, newchan, _ENV ) ->
     ChannelID = erlam_chan_serve:get_new_chan(),
     {stop, erlam_lang:new_chan( ChannelID )};
-step( #erlam_erl{} = E, _ENV ) -> {stop, E};
-step( #erlam_fun{} = F, _ENV ) -> {stop, F};
-step( #erlam_chan{} = C, _ENV ) -> {stop, C};
-step( N, _ENV ) when is_integer( N ) -> {stop, N};
+step( _, #erlam_erl{} = E, _ENV ) -> {stop, E};
+step( _, #erlam_fun{} = F, _ENV ) -> {stop, F};
+step( _, #erlam_chan{} = C, _ENV ) -> {stop, C};
+step( _, N, _ENV ) when is_integer( N ) -> {stop, N};
 
-step( #erlam_var{name=N}, ENV ) ->
+step( _, #erlam_var{name=N}, ENV ) ->
     case lists:keyfind(N,1,ENV) of
         {N,V} -> {stop, V};
         false -> {error, badvar} 
     end;
-step( #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
+step( ProcID, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
     case is_value( E1 ) of
         {true, 0} -> {ok, E3};
         {true, _} -> {ok, E2};
         false -> 
-            (case interstep( E1, ENV ) of
+            (case interstep( ProcID, E1, ENV ) of
                 {NV,NENV}       -> {ok, IF#erlam_if{exp=NV}, NENV};
                 {NV,_,Sleep} -> {stop, IF#erlam_if{exp=NV}, Sleep}
             end)
     end;
-step( #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
+step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
     case is_value( C ) of
         {true, #erlam_chan{chan=Chan}} -> 
             (case is_value( E ) of
-                 {true, _} -> {ok, erlam_chan:swap( Chan, E )};
+                 {true, _} -> 
+                     (case erlam_chan:swap( Chan, E, ProcID ) of
+                          blocked -> {stop, Swap};
+                          Val -> {ok, Val}
+                      end);
                  false -> 
-                     (case interstep( E, ENV ) of
+                     (case interstep( ProcID,  E, ENV ) of
                           {NV,NENV}       -> {ok, Swap#erlam_swap{val=NV}, NENV};
                           {NV,_,Sleep} -> {stop, Swap#erlam_swap{val=NV}, Sleep}
                       end)
@@ -130,24 +134,24 @@ step( #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
         {true, Unknown} -> 
             {error, {badchan, Unknown}};
         false ->
-            (case interstep( C, ENV ) of
+            (case interstep( ProcID, C, ENV ) of
                  {NV,NENV} -> {ok, Swap#erlam_swap{chan=NV}, NENV};
                  {NV,_,Sleep} -> {stop, Swap#erlam_swap{chan=NV}, Sleep}
             end)
     end;
-step( #erlam_spawn{exp=E}=Spawn, ENV ) ->
+step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
     case is_value( E ) of
         {true, #erlam_fun{}} ->
             {stop, erlam_rts:safe_spawn( E, ENV )};
         {true, _} ->   % We fake that the error happened in the other thread,
             {stop, 0}; %  because spawn errors out if it's not a unit-function.
         false -> 
-            (case interstep( E, ENV ) of
+            (case interstep( ProcID, E, ENV ) of
                 {NV,NENV} -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
                 {NV,_,Sleep} -> {stop, Spawn#erlam_spawn{exp=NV}, Sleep}
             end)
     end;
-step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
+step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
     case is_value( E1 ) of
         {true, #erlam_fun{var=V,exp=E}} -> 
             (case is_value( E2 ) of
@@ -160,7 +164,7 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                             {ok, NewE, [{NewName,E2}|ENV]}
                       end);
                  false -> 
-                     (case interstep( E2, ENV ) of
+                     (case interstep( ProcID, E2, ENV ) of
                          {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
                          {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
                      end)
@@ -170,14 +174,14 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                  {true, _} ->
                      step_erl( A, F, E2, ENV ); 
                  false ->
-                     (case interstep( E2, ENV ) of
+                     (case interstep( ProcID, E2, ENV ) of
                          {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
                          {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
                      end)
              end);
         {true, _} -> {error, badapp};
         false -> 
-            (case interstep( E1, ENV ) of
+            (case interstep( ProcID, E1, ENV ) of
                  {NV, NENV} ->{ok, App#erlam_app{exp1=NV}, NENV};
                  {NV, _, Sleep} -> {stop, App#erlam_app{exp1=NV}, Sleep}
             end)
@@ -187,8 +191,8 @@ step( #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
 %% @doc Inter-step stepping. Assumes the next step is correct and possibly
 %%   produces a value or new environment.
 %% @end
-interstep( E, ENV ) ->
-    case step( E, ENV ) of
+interstep( ProcID, E, ENV ) ->
+    case step( ProcID, E, ENV ) of
         {ok, NE} -> {NE, ENV};
         {ok, NE, NENV} -> {NE, NENV};
         {stop, V} -> {V, ENV};

@@ -10,13 +10,13 @@
 
 %% General Debugery.
 -include("debug.hrl").
-
 -include("process.hrl").
 
 %% Erlam Scheduler API
 -export([ layout/2, init/1, cleanup/1, tick/2, spawn_process/2 ]).
 
--define(MAX_REDUCS, 20). % The number of reductions before moving to the next process.
+-define(MAX_REDUCS, 20). % The num of reductions before moving to the next proc
+-define(inspect(P), io_lib:format("~s",[erlam_trans:ast2pp(P#process.exp)])).
 
 -record( internal_state, {  cur_proc = nil,
                             cur_reduc = 0,
@@ -68,13 +68,9 @@ spawn_process( Process, #internal_state{procs=P} = State ) ->
 %% @hidden
 %% @doc Implements the fair round-robin selection from the 'procs' queue.
 pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
-    ?DEBUG("NEXT PICK: ~p~n",[P]),
     {Selection, Queue} =
         case queue:out( P ) of
-            {empty, _} -> %SHOULD NOT HAPPEN
-                ?ERROR("erlam_sched_single:pick_next",
-                                "Scheduler Queue is empty!",[]),
-                error(badarg);
+            {empty, _} -> {C,P}; %% Only one process, so repeat.
             {{value,V},Q} -> {V,Q}
         end,
     NewQueue = case C of nil -> Queue; _ -> queue:in(C, Queue) end,
@@ -85,7 +81,7 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
 %% @hidden
 %% @doc Perform a reduction.
 reduce( #internal_state{ cur_proc=P, cur_reduc=R } = State ) ->
-    ?DEBUG("TICK: ~p:~p~n",[R,P]),
+    ?DEBUG("TICK: ~p:~s~n",[R,?inspect(P)]),
     case erlam_rts:safe_step(P) of
         {ok,NP} -> {ok, 'RUNNING', State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 

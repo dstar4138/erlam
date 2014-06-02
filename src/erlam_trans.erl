@@ -39,7 +39,7 @@ ast2src( Exp ) ->
              { newchan, fun() -> "newchan" end },
              { integer, fun integer_to_list/1 },
              { function, fun erl2src/1 },
-             { erlam_var, fun(V) -> ["{erlam_var,",atom_to_list(V),"}"] end },
+             { erlam_var, fun(V) -> ["{erlam_var,'",atom_to_list(V),"'}"] end },
              { erlam_spawn, fun(E) -> ["{erlam_spawn,",E,"}"] end },
              { erlam_chan,  fun(C) -> ["[erlam_chan,",C,"}"] end },
              { erlam_erl,   fun(A,F) -> ["{erlam_erl,",A,",",F,"}"] end },

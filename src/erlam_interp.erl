@@ -131,21 +131,21 @@ trim( A ) -> re:replace( A, "(^\\s+)|(\\s+$)", "", [global,{return,list}] ).
 %%   enviroment.
 %% @end
 stepall( AST ) -> 
-    case stepall( AST, [] ) of
+    case stepall( make_ref(), AST, [] ) of
         {ok, Val} -> Val;
         {error,Reason} ->
             io:format("ERROR: ~p~n",[Reason]),
             0 % Default to 0 return value.
     end.
-stepall( AST, ENV ) ->
+stepall( ProcID, AST, ENV ) ->
     check_msgs(),
-    case erlam_rts:step( AST, ENV ) of
-        {ok, NextAST} -> stepall( NextAST, ENV );
-        {ok, NAST, NENV} -> stepall( NAST, NENV );
+    case erlam_rts:step( ProcID, AST, ENV ) of
+        {ok, NextAST} -> stepall( ProcID, NextAST, ENV );
+        {ok, NAST, NENV} -> stepall( ProcID, NAST, NENV );
         {stop, Val} -> {ok, Val};
         {stop, Val, Sleep} -> % Instead of stopping, just hang and continue.
             timer:sleep( Sleep ),
-            stepall( Val, ENV ); 
+            stepall( ProcID, Val, ENV ); 
         {error, Reason} -> {error, Reason}
     end.
 
@@ -166,6 +166,8 @@ check_msgs() ->
 %%   turn it into a basic Erlang process and let the Erlang scheduler take 
 %%   care of it.
 %% @end
-basic_spawn( #process{ exp = E, env=Env } ) ->
-   erlang:spawn( fun() -> stepall(#erlam_app{ exp1=E, exp2=0 }, Env) end ).
+basic_spawn( #process{ exp = E, env=Env, proc_id=ProcID } ) ->
+   erlang:spawn( fun() -> 
+                    stepall(ProcID, #erlam_app{ exp1=E, exp2=0 }, Env) 
+                 end ).
 

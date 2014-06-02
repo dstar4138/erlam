@@ -11,7 +11,7 @@
 -include("erlam_chan.hrl").
 
 %% API
--export([ start_link/1, swap/2, valid/1 ]).
+-export([ start_link/1, swap/3, valid/1 ]).
 
 %% gen_server callbacks
 -export([ init/1,
@@ -31,9 +31,9 @@ start_link( ID ) ->
     gen_server:start_link( ?MODULE, [ ID ], [] ). % Not registered.
 
 %% @doc Given a channel, hang until another process swaps with you.
--spec swap( #chan{}, erlam_val() ) -> erlam_val().
-swap( #chan{cpid=CPID}, Val ) -> 
-    gen_server:call(CPID, {swap, Val}, infinity).
+-spec swap( #chan{}, erlam_val(), reference() ) -> blocked | erlam_val().
+swap( #chan{cpid=CPID}, Val, ProcessID ) -> 
+    gen_server:call(CPID, {swap, Val, ProcessID}, infinity).
 
 %% @doc Checks to make sure it is a valid 
 -spec valid( term() ) -> boolean().
@@ -45,7 +45,7 @@ valid( _ ) -> false.
 %%%===================================================================
 
 %% Internal State
--record(state,{curid :: integer(), curval = undefined}).
+-record(state,{curid :: integer(), curval = {unblocked, dict:new()}}).
 
 %% @private
 %% @doc Initializes the server
@@ -54,14 +54,22 @@ init([ ID ]) ->
 
 %% @private
 %% @doc Handling synch call messages.
-handle_call({swap, Val}, From, State = #state{curval=V}) ->
-    case V of
-        undefined -> 
-            NewVal = {Val,From},
-            {noreply, State#state{curval=NewVal}}; %Will reply later.
-        {OtherVal, OtherFrom} ->
-            gen_server:reply(OtherFrom, Val),
-            {reply, OtherVal, State#state{curval=undefined}}
+handle_call({swap, MyVal, Me}, _, State = #state{curval={V, D}}) ->
+    case check_dict( Me, V, D ) of
+        {swap, OtherVal, NewCur} ->
+            {reply, OtherVal, State#state{curval=NewCur}};
+        false ->
+            %% Wasn't buffered, so perform swap. If swap is waiting then
+            %% get value and save your's in the buffer addressed to Other.
+            %% Otherwise, add self to channel and get back 'blocked'.
+            (case V of
+                unblocked ->
+                    NewCur ={ {Me, MyVal}, D },
+                    {reply, blocked, State#state{curval=NewCur}};
+                {Other, OtherVal} ->
+                     NewCur = { unblocked, dict:store( Other, MyVal, D ) },
+                    {reply, OtherVal, State#state{curval=NewCur}}
+            end)
     end;
 handle_call(Request, _From, State) ->
     ?ERROR("Channel","Unknown Call: ~p",[Request]), 
@@ -90,3 +98,19 @@ terminate(_Reason, _State) ->  ok.
 %% @doc  Convert process state when code is changed. NOT USED.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
+
+%%% =========================================================================
+%%% Private Functionality
+%%% =========================================================================
+
+%% @doc If the process shows up much later, the channel will have buffered the
+%%   other process's swapped value for it. If it's not present, just continue,
+%%   otherwise, removed yourself from buffer and return.
+%$ @end
+check_dict( Me, V, D ) ->
+    case dict:find( Me, D ) of
+        error -> false; % No waiting value for proc.
+        {ok, Val} -> % Waiting value for proc.
+            NewCur = {V, dict:erase(Me,D)}, 
+            {swap, Val, NewCur}
+    end.

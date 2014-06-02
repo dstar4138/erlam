@@ -295,10 +295,8 @@ run_init( ) ->
 %% @hidden
 %% @doc Wraps the behaviour call to the implemented scheduler.  
 run_tick( PrevStatus, ImplState ) ->
-    Res = ( 
-      catch
+    case catch
         erlang:apply( get(?PD_BEHAVE), tick, [ PrevStatus, ImplState ] )
-    ),?DEBUG("FROM TICK: ~p~n",[Res]),case Res
     of 
         {ok, Status, Updated} -> 
             put( ?PD_STATUS_HIST, [Status|get(?PD_STATUS_HIST)] ), %Note: backwards

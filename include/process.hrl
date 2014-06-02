@@ -26,7 +26,10 @@
 
    %% Schedulers may want to store internal state in a process for quick 
    %% evaluation. This is the feild where it will be stored.
-   notes  :: any()
+   notes  :: any(),
+
+   %% Make a unique reference to this process.
+   proc_id = make_ref()
 }).
 -define(new_process(F,E),#process{state='RUNNING',exp=F,env=E,resrep=nil}).
 -define(is_blocked(P),P#process.state=='BLOCKED').
