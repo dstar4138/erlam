@@ -155,9 +155,18 @@ check_mq( 0 ) -> false;
 check_mq( N ) ->
     ProcID = get( ?PD_LPU_ID ), 
     Hang = get( ?PD_MSG_HANG ),
+    ?DEBUG("--(~p)Checking MQ ~n",[ProcID]),
     receive 
-        {pg, _from, ?SCHEDULER_GROUP, {sched_msg,ProcID,M}} -> M;
-        {pg, _from, ?SCHEDULER_GROUP, {sched_msg,M}} -> M;
+        {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,ProcID,M}} -> 
+            ?DEBUG("GOT(~p) ~p~n",[ProcID,M]),
+            {ok, M};
+        {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,_,_}} -> %Other LPU
+             check_mq( N-1 );
+        {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,M}} ->
+            ?DEBUG("GOT ~p~n",[M]),
+            {ok, M};
+        {crashed_member,?SCHEDULER_GROUP,_Pid} -> % We'll die too shortly.
+            check_mq( N-1 );
         Unknown ->    
             buffer(?PD_TMQ, Unknown),  % We would like to return timely, ignore 
             check_mq( N - 1 )          % internals until after tick.

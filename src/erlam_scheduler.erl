@@ -91,9 +91,8 @@ recurse_logic(X,N) -> count_logical(X,N).
 %% @doc Update user options in topology generation.
 option_update(N, Max, Options)-> 
     Update = fun (Tuple, List) ->
-                lists:keyreplace( element(1,Tuple), 1, Tuple, List )
+                lists:keystore( element(1,Tuple), 1, List, Tuple )
              end,
-    %% TODO: Remove debug==true option.
-    DefaultOptions = [{primary,(N==0)}, {processor,N,Max}, {debug,true}], 
+    DefaultOptions = [{primary,(N==0)}, {processor,N,Max}], 
     lists:foldl( Update,  Options, DefaultOptions ).
 

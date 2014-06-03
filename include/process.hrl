@@ -3,7 +3,7 @@
    %% a process, it is still technically running, if a process is in the 
    %% queue in the running state, it can be considered a 'computational' thread
    %% for all intents and purposes.
-   state  :: 'RUNNING' | 'BLOCKED',
+   state  :: running | blocked,
 
    %% In the event this process is a 'primary' thread, it will need to return
    %% the value of it's evaluation upwards into the runtime system. This can
@@ -31,9 +31,9 @@
    %% Make a unique reference to this process.
    proc_id = make_ref()
 }).
--define(new_process(F,E),#process{state='RUNNING',exp=F,env=E,resrep=nil}).
--define(is_blocked(P),P#process.state=='BLOCKED').
--define(is_running(P),P#process.state=='RUNNING').
+-define(new_process(F,E),#process{state=running,exp=F,env=E,resrep=nil}).
+-define(is_blocked(P),P#process.state==blocked).
+-define(is_running(P),P#process.state==running).
 -define(step(P),P#process{exp=erlam_rts:safe_step(P#process.exp)}).
 -define(get_notes(P),P#process.notes).
 -define(set_notes(P,N),P#process{notes=N}).

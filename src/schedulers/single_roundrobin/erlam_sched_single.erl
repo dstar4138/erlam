@@ -83,7 +83,7 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
 reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=_Ps } = State ) ->
 %    ?DEBUG("TICK: ~p(~p):~s~n",[R,queue:len(_Ps),?inspect(P)]),
     case erlam_rts:safe_step(P) of
-        {ok,NP} -> {ok, 'RUNNING', State#internal_state{ cur_proc=NP,
+        {ok,NP} -> {ok, running, State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
         {stop,NP} -> check_if_halt_or_stop( NP, State );
         {error, Reason} -> exit( Reason ) % Won't handle errors
