@@ -17,6 +17,24 @@ elib
     // Used to bottom out recursive calls 
     id = (fun x.x);
 
+    // Pair, Tuples and Lists
+    pair = fun x,y,f.(f x y);
+    newlist = fun f.(f false false);
+    cons = fun x,l.(pair x l);
+    is_empty = fun l.(is_num (tail l));
+    count = fun l.(omega fun f,n,a.(if (is_empty n)
+                                       a
+                                       (f f (tail n) (inc a)))
+                       l 0);
+    rev = fun f.(omega fun r,a,l.(if (is_empty l)
+                                      a
+                                      (r r (cons (head l) a) tail l))
+                       newlist);
+    map = fun f.(omega fun r,a,l.(if (is_empty l)
+                                      (rev a)
+                                      (r r (cons (f (head l)) a) (tail l)))
+                       newlist);
+
     // Evaluate both parameters but drop/ignore the second value 
     fst = fun x.(fun _. x);
     left = fun x.(fun _. x);
@@ -90,8 +108,16 @@ elib
 
     // Simulate Church Numeral given an Integer. This acts like a for-loop
     // in ErLam. It will reapply F to its result N times, starting with X
-    rep = _erl[1]{ fun(N) -> erlam_util:church(N) end };
-    unrep = _erl[1]{ fun(F) -> erlam_util:unchurch(F) end };
+    rep = _erl[1]{ fun(N) when is_integer( N ) ->
+                      F = erlam_lang:new_var( '_f' ),
+                      X = erlam_lang:new_var( '_x' ),
+                      Gen = lists:foldl( fun( _, Acc) ->
+                                            erlam_lang:new_app(F, Acc)
+                                         end,
+                                         X, lists:seq(1,N) ),
+                      erlam_lang:new_fun( F, erlam_lang:new_fun( X, Gen ) )
+                   end
+                 };
 
     // Simple Less than or Equal to 
     leq = _erl[2]{
@@ -229,7 +255,7 @@ elib
     // Hang (sleep) for X seconds
     hang = _erl[1]{
                 fun(X) when is_integer(X) ->
-                    erlam_util:hang(X)
+                    erlam_rts:safe_hang(X)
                 end
             };
 
@@ -246,7 +272,7 @@ elib
     // Hang (sleep) for random number of seconds from 1 to X inclusive
     rhang = _erl[1]{
                 fun(X) when is_integer(X) ->
-                    erlam_util:hang( random:uniform(X) )
+                    erlam_rts:safe_hang( random:uniform(X) )
                 end
             };
 bile

@@ -42,7 +42,7 @@ file( Path, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_forms( AST, Options ) ->
-    case erlam_trans:to_forms( AST ) of
+    case erlam_trans:ast2forms( AST ) of %TODO: Not Implemented!
         {ok, Forms} -> save_or_return( Forms, fun t2s/1, ".forms", Options );
         Err -> reportize( "Compiling Abstract Forms Failed", Err )
     end.
@@ -52,7 +52,7 @@ to_forms( AST, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_erl( AST, Options ) ->
-    Source = erlam_trans:to_erl( AST ),
+    Source = erlam_trans:ast2erlsrc( AST ), %TODO: Not Implemented!
     ID = fun(X)-> inject_module( wrap_for_source(X), Options ) end,
     save_or_return(Source, ID, ".erl", Options). 
 
@@ -78,9 +78,13 @@ to_beam( AST, Options ) ->
 %%   side the file in `path'.
 %% @end  
 to_escript( AST, Options ) ->
-    {ok, Erl} = to_erl(AST, []),
+    Erl = erlam_trans:ast2src(AST), %Get tuplized string of AST for RTS.
     Source = wrap_for_source( Erl ),
-    Sections = [shebang, comment, {emu_args, "-pa "++?EBIN_DIR}, 
+    Sections = [shebang, comment, {emu_args, 
+                                    "+sbt s "++          % Max bind schedulers
+                                    "+sbwt very_long "++ % Don't let them sleep
+                                    "+scl false " ++     % Load Balancing off
+                                    "-pa "++?EBIN_DIR},  % Link to see rts mod
                 {source, list_to_binary(Source)}],
     case orddict:find( path, Options ) of
         error -> % Just Returning, So give back Contents.
@@ -144,9 +148,9 @@ display_report([Report|R], Opts) -> % TODO: Check verbosity options
 %%   Forms, and a standalone Escript.
 %% @end  
 push_to_files( AST, Options ) ->
-  [ check_then_run( to_forms, Options, AST ),
-    check_then_run( to_erl, Options, AST ),
-    check_then_run( to_beam, Options, AST ),
+  [ %check_then_run( to_forms, Options, AST ), %TODO: TURNED OFF DUE TO MISSING TRANSLATION FUNCTIONS.
+    %check_then_run( to_erl, Options, AST ),
+    %check_then_run( to_beam, Options, AST ),
     check_then_run( to_escript, Options, AST) ].
 
 %% @hidden 
@@ -212,27 +216,27 @@ inject_module( Erl, Options ) ->
 wrap_for_source( Erl ) ->
     lists:flatten([
        "main(Args) when is_list(Args)->\n",
-        "erlam_rts:setup(Args),\n",
-        "X = ", Erl, ",\n",
+        "X = erlam_rts:setup(Args,", Erl,"),\n",
         "erlam_rts:breakdown(),\n",
         "io:format(\"Res: ~p~n\",[X]).\n"]).
 
 %% @hidden
 %% @doc Wraps our forms in a main function that is essentially the following:
 %%      ``` main( CArgs ) -> 
-%%              erlam_rts:setup(CArgs), X=Forms, erlam_rts:breakdown(), X.
+%%              X=erlam_rts:setup(CArgs,Forms), erlam_rts:breakdown(), X.
 %%      '''
 build_main_fun( Forms ) ->
     Setup = erl_syntax:application( erl_syntax:atom( erlam_rts ),
                                     erl_syntax:atom( setup ),
-                                    [erl_syntax:variable('CArgs')] ),
+                                    [ erl_syntax:variable('CArgs'),
+                                      Forms ] ),
     Set = erl_syntax:match_expr( erl_syntax:variable('X'), 
-                                 Forms ),
+                                 Setup ),
     BreakDown = erl_syntax:application( erl_syntax:atom( erlam_rts ),
                                         erl_syntax:atom( breakdown ),
                                         [] ),
     Return = erl_syntax:variable('X'),
     Clause = erl_syntax:clause([ erl_syntax:variable('CArgs') ], [],
-                               [ Setup, Set, BreakDown, Return ] ),
+                               [ Set, BreakDown, Return ] ),
     erl_syntax:function( erl_syntax:atom( main ), [ Clause ] ).
 

@@ -1,0 +1,130 @@
+// ****************************************************************************
+// Erlam.CML -               
+//
+//    Utilizing Swap channels, the following library implements event 
+//    simulations. Note that events are actually a pair of channels, one for
+//    synchronization and another for aborting. Wraps will pipeline on their
+//    respective channels.
+//    
+// ****************************************************************************
+elib
+  
+   /// type 'a event = ( 'a channel * 'a channel )
+   ///   First channel communicates event, second communicates abort.
+   ///   Note abort channel is initialized to nil, while sync is whatever
+   ///    returns from guard or the always value.
+
+    // Example channel which always returns the value given.
+    // :: 'a -> 'a event
+    always = fun v.(let s = newchan in
+                    let a = newchan in
+                    let loop = (omega fun f,x.(ignore (swap s x) (f f))) in
+                    let _ = (spawn fun _.(loop v)) in
+                    let _ = (spawn fun _.(swap a nil)) in
+                    (pair s a));
+
+
+    // Example channel which never syncs, but will allow an abort.
+    // :: 'a event
+    never = (let a = newchan in
+             let _ = (spawn fun _.(swap a nil)) in
+             (pair newchan a));
+
+
+    // Get the channel responsible for synchronizing.
+    // :: 'a event -> 'a channel
+    event_sync_chan = fun s,_.s;
+
+
+    // Get the channel responsible for aborting.
+    // :: 'a event -> 'a channel
+    event_abort_chan= fun _,a.a;
+
+
+    // Block the current process until a matching event is avaliable.
+    // :: 'a event -> 'a
+    sync = fun e.(swap (event_sync_chan e) nil);
+
+    
+    // Block the current process until the event aborts.
+    // :: 'a event -> nil
+    abort = fun e.(swap (event_abort_chan e) nil);
+
+
+    // Async abort of a process.
+    // :: 'a event -> nil
+    pabort = fun e.(spawn fun _.(abort e));
+
+
+    // Non-deterministically select an event from a list and return it to be
+    // synchronized on. The rest of the events are effectively aborted.
+    // :: [ 'a event ] -> 'a event
+    choose = fun list.(
+            let num_clients = (count list) in 
+            let ans = newchan in
+            let grp = newchan in
+            
+            // We need to check if we got the server or not.
+            let repeat_send = (fun v.(let val = (pair false v) in
+                          (omega (fun f.(let res = (swap grp val) in
+                                if (fst res)
+                                  // We got server, so check if syncing?
+                                     (if (snd res) nil (pabort v))               
+                                  // We didn't so resend.
+                                     (f f)
+                            ))))) in
+              
+            // Wrap the event with sync/abort checking.
+            let sawrap = (fun c.(spawn (fun _. (repeat_send c)))) in
+        
+            // The server knows how many clients to eat and will wait for them
+            // all to check in before dying. But will send choice first.
+            let server = fun _.(let syncval  = (pair true true)   in
+                                let abortval = (pair true false)  in
+                                let res      = (swap grp syncval) in
+                                let ret_val  = (snd res)          in
+                                let _ = (spawn fun _.(swap ans ret_val)) 
+                                in (omega
+                                      (fun f,n.( if (leq n 1) 
+                                                    nil
+                                                    (ignore (swap grp abortval)
+                                                            (f f (dec n)))))
+                                        num_clients)) in
+            let _ = (spawn server) in
+
+            // Server is now running, it doesn't matter if it's first or last
+            // to the channel as all choices will eventually swap with server.
+            (ignore (map sawrap list) (swap ans nil));
+
+   /// Wrapping an event will either pipeline on the sync or abort channels
+   /// in the event. For example, and if you'll grant me flexability of syntax:
+   ///     f :: 'a -> 'a = ...
+   ///     g :: 'a -> 'a = ...
+   ///     b :: 'a event = guard (fun _. ...)
+   ///     wrap b f :: ( f('a) channel * 'a channel )
+   ///     wrapNack b g :: ( 'a channel * g('a) channel )
+
+    // Specify a post-sync action.
+    // :: 'a event -> ( 'a -> 'b ) -> 'b event
+    wrap = fun e,f.(let s = (event_sync_chan e) in
+                    let a = (event_abort_chan e) in 
+                    let _ = (spawn fun _.(swap s (f (sync e))))
+                    in (pair s a);
+
+                    
+    // Specify a post-abort action.
+    // :: 'a event -> ( 'a -> 'b ) -> 'b event
+    wrapNack = fun e,f.(let s = (event_sync_chan e)  in
+                        let a = (event_abort_chan e) in
+                        let _ = (spawn fun _.(swap a (f (abort e))))
+                        in (pair s a));
+
+ 
+    // Specify a pre-sync action. f is only run the first time.
+    // :: (_ -> 'a) -> 'a event
+    guard = fun f.(let s = newchan in // Sync channel
+                   let a = newchan in // Abort channel
+                   let _ = (spawn fun _.(swap s (unblock f))) in //Init with f
+                   let _ = (spawn fun _.(swap a nil)) // Init with nil
+                   in ((pair newlist) (pair s a)));
+bile

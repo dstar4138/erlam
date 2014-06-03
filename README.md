@@ -84,20 +84,20 @@ Not parallelized, but a simple Fibonacci function with continuation.
     fun n. (rep n (fun f,a,b.(f b (add a b))) left 0 1)
 
 Where the `rep` function takes an integer and returns the Church Numeral 
-function for it. In otherwords, replicate the function call `n` times.
+function for it. In other-words, replicate the function call `n` times.
 
 To then parallelize, it's a bit more difficult as we need to synchronize using 
 channels. The following function spawns two new sub-processes for both numbers
 and then waits for their return:
 
-    (fun n.( fun x.(x x)
-             (fun f,m. 
-                  if (lt m 1) 
-                     m
-                     (merge fun _.(f f (sub m 1))
-                            fun _.(f f (sub m 2))
-                            add)
-             n)
+    fun n.( fun x.(x x)
+            (fun f,m.
+                 if (leq m 1)
+                    m
+                    (merge fun _.(f f (sub m 1))
+                           fun _.(f f (sub m 2))
+                           add))
+            n)
 
 Here we use the merge function, which spawns the last two functions as separate
 processes and then merges their return values via the provided `add` function.
@@ -116,13 +116,15 @@ in a channel. Here's the `merge` function:
                             )))
 
 Note we start the first process as soon as we get it and will spawn it off until
-we hit the merge point.
+we hit the merge point. We also point out that a 'process' is a closure and a
+unit-function which will be passed `nil` to bootstrap it's evaluation. Both the
+built-in `spawn` function and the std-library's `merge` use this approach.
        
 
 #### Example program: Ping-Pong Servers
 
 Another common example is a ping-pong server, where a client and server pass
-a message back and forth. Note that ErLam uses swap channels so we force mutal
+a message back and forth. Note that ErLam uses swap channels so we force mutual
 exclusion:
 
     fun n.(

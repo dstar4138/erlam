@@ -1,48 +1,39 @@
 %%
-%% ErLam Channel Server
-%%  This is the parallel channel handling server. 
+%% ErLam Swap Channel
+%%  This is the implementation of the Erlam Swap Channel process. It is created
+%%  by the erlam_chan_serve and will automatically synchronize parallel
+%%  accesses.
 %%
 -module(erlam_chan).
 -behaviour(gen_server).
 -include("debug.hrl").
 -include("erlam_exp.hrl").
+-include("erlam_chan.hrl").
 
 %% API
--export([start/0, stop/0,get_new_chan/0,swap/2,valid/1]).
+-export([ start_link/1, swap/3, valid/1 ]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
-
-%% Private
--export([handler/2]).
-
--record(chan,{id :: integer()}).
--record(state,{curid :: integer(), open_chan :: dict()}).
+-export([ init/1,
+          handle_call/3,
+          handle_cast/2,
+          handle_info/2,
+          terminate/2,
+          code_change/3 ]).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 %% @doc Starts the server
--spec start() -> ok.
-start() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []), ok.
-
-%% @doc Stops the server
--spec stop() -> ok.
-stop() -> gen_server:cast(?MODULE, shutdown).
-
-%% @doc Ask server for a channel to swap on. They are multi-use. 
--spec get_new_chan() -> #chan{}.
-get_new_chan() -> gen_server:call(?MODULE, get_new_chan).
+-spec start_link( integer() ) -> {ok, pid()}.
+start_link( ID ) -> 
+    gen_server:start_link( ?MODULE, [ ID ], [] ). % Not registered.
 
 %% @doc Given a channel, hang until another process swaps with you.
--spec swap( #chan{}, erlam_val() ) -> erlam_val().
-swap( Chan, Val ) -> gen_server:call(?MODULE, {swap, Chan, Val}, infinity).
+-spec swap( #chan{}, erlam_val(), reference() ) -> blocked | erlam_val().
+swap( #chan{cpid=CPID}, Val, ProcessID ) ->
+    gen_server:call(CPID, {swap, Val, ProcessID}, infinity).
 
 %% @doc Checks to make sure it is a valid 
 -spec valid( term() ) -> boolean().
@@ -53,25 +44,37 @@ valid( _ ) -> false.
 %%% gen_server callbacks
 %%%===================================================================
 
-%% @private
-%% @doc Initializes the server
-init([]) -> {ok, #state{curid=0, open_chan=dict:new()}}.
+%% Internal State
+-record(state,{curid :: integer(), curval = {unblocked, dict:new()}}).
 
 %% @private
-%% @doc Handling synch call messages
-handle_call(get_new_chan, _From, S=#state{curid=I}) ->
-    {reply, #chan{id=I}, S#state{curid=I+1}};
-handle_call({swap, #chan{id=ID}, Val}, From, S=#state{open_chan=Vals}) ->
-    case dict:is_key(ID,Vals) of
-        true -> 
-            dict:fetch(ID,Vals)!{swap,From,Val}, 
-            {noreply, S#state{open_chan=dict:erase(ID,Vals)}};
-        false -> 
-            NewHandler = spawn_handler(From, Val), 
-            {noreply,S#state{open_chan=dict:store(ID,NewHandler,Vals)}}
+%% @doc Initializes the server
+init([ ID ]) -> 
+    {ok, #state{curid=ID}}.
+
+%% @private
+%% @doc Handling synch call messages.
+handle_call({swap, MyVal, Me}, _, State = #state{curval={V, D}}) ->
+    case check_dict( Me, V, D ) of
+        {swap, OtherVal, NewCur} ->
+            {reply, OtherVal, State#state{curval=NewCur}};
+        false ->
+            %% Wasn't buffered, so perform swap. If swap is waiting then
+            %% get value and save your's in the buffer addressed to Other.
+            %% Otherwise, add self to channel and get back 'blocked'.
+            (case V of
+                unblocked ->
+                    NewCur ={ {Me, MyVal}, D },
+                    {reply, blocked, State#state{curval=NewCur}};
+                {Me, _} -> {reply, blocked, State};
+                {Other, OtherVal} ->
+                    NewCur = { unblocked, dict:store( Other, MyVal, D ) },
+                    {reply, OtherVal, State#state{curval=NewCur}}
+            end)
     end;
 handle_call(Request, _From, State) ->
-    ?ERROR("Channel","Unknown Call: ~p",[Request]), {reply, ok, State}.
+    ?ERROR("Channel","Unknown Call: ~p",[Request]), 
+    {reply, ok, State}.
 
 %% @private
 %% @doc Handling async cast messages
@@ -96,18 +99,19 @@ terminate(_Reason, _State) ->  ok.
 %% @doc  Convert process state when code is changed. NOT USED.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-spawn_handler( FromPid, FirstVal ) ->
-    spawn( erlam_chan, handler, [FromPid, FirstVal]).
-handler( From, Val ) ->
-    receive
-        {swap,Other,OVal} ->
-            gen_server:reply(Other,Val), 
-            gen_server:reply(From,OVal);
-        Other -> 
-            ?ERROR("Channel","Handler received unexpected message: ~p",[Other]),
-            handler( From, Val )
+
+%%% =========================================================================
+%%% Private Functionality
+%%% =========================================================================
+
+%% @doc If the process shows up much later, the channel will have buffered the
+%%   other process's swapped value for it. If it's not present, just continue,
+%%   otherwise, removed yourself from buffer and return.
+%$ @end
+check_dict( Me, V, D ) ->
+    case dict:find( Me, D ) of
+        error -> false; % No waiting value for proc.
+        {ok, Val} -> % Waiting value for proc.
+            NewCur = {V, dict:erase(Me,D)}, 
+            {swap, Val, NewCur}
     end.
-        

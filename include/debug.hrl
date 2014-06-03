@@ -1,11 +1,15 @@
--define(DEBUG_RUN, true).
+%-define(DEBUG_RUN, true).
 
 
 -ifdef(DEBUG_RUN).
--define(DEBUG( Msg, Format ), io:format(Msg, Format)).
+%-define(DEBUG( Msg ), io:format("~p|"++Msg,[self()])).
+%-define(DEBUG( Msg, Format ), io:format("~p|"++Msg, [self()|Format])).
+-define(DEBUG( Msg ), error_logger:info_msg("~p|"++Msg,[self()])).
+-define(DEBUG( Msg, Format ), error_logger:info_msg("~p|"++Msg, [self()|Format])).
 
 -else.
--define(DEBUG( _, _), true).
+-define(DEBUG( _X ), true).
+-define(DEBUG( _X, _Y), true).
 
 -endif.
 

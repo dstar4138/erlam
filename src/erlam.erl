@@ -11,9 +11,9 @@
 
 -define(DEFAULT_OPTS, orddict:from_list([ 
                             {shell, false},    % Start up the ErLam Shell
-                            {to_forms, false}, % Generate Erlang AbsForms of els
-                            {to_erl, false},   % Generate Erlang Source of els
-                            {to_beam, false},  % Generate BEAM Module of els
+%                            {to_forms, false}, % Generate Erlang AbsForms of els
+%                            {to_erl, false},   % Generate Erlang Source of els
+%                            {to_beam, false},  % Generate BEAM Module of els
                             {to_escript, true} % Generate Standalone Escript
                                         ])).
 
@@ -31,15 +31,15 @@ main(Args) ->
 check_options(["--shell"|Rest], Opts) ->
     NOpts = orddict:store(shell, true, Opts),
     check_options( Rest, NOpts );
-check_options(["--to_forms"|Rest], Opts) ->
-    NOpts = orddict:store(to_forms, true, Opts),
-    check_options( Rest, NOpts );
-check_options(["--to_erl"|Rest], Opts) ->
-    NOpts = orddict:store(to_erl, true, Opts),
-    check_options( Rest, NOpts );
-check_options(["--to_beam"|Rest], Opts) ->
-    NOpts = orddict:store(to_beam, true, Opts),
-    check_options( Rest, NOpts );
+%check_options(["--to_forms"|Rest], Opts) ->
+%    NOpts = orddict:store(to_forms, true, Opts),
+%    check_options( Rest, NOpts );
+%check_options(["--to_erl"|Rest], Opts) ->
+%    NOpts = orddict:store(to_erl, true, Opts),
+%    check_options( Rest, NOpts );
+%check_options(["--to_beam"|Rest], Opts) ->
+%    NOpts = orddict:store(to_beam, true, Opts),
+%    check_options( Rest, NOpts );
 check_options(["--no_escript"|Rest], Opts) -> %DEFAULT, so toggle off
     NOpts = orddict:store(to_escript, false, Opts),
     check_options( Rest, NOpts );
@@ -52,7 +52,7 @@ check_options( Files, Opts ) -> {Files, Opts}.
 %% @doc Enter the erlam shell.
 shell( Cfgs ) -> 
     io:put_chars("Now entering ErLam Shell!\n" ++
-                 "Use ^D to quit.\n"),
+                 "End all expressions with a ';'. Use ^C or 'q' to quit.\n"),
     erlam_interp:shell( Cfgs ).
 
 %% @private
@@ -68,9 +68,9 @@ usage() ->
         "usage: elsc [options] file ...\n" ++
         "Options:\n" ++
         "--shell\t start the ErLam Interpreter\n" ++
-        "--to_forms\t generate intermediate Erlang Abstract Form\n" ++
-        "--to_erl\t generate the Erlang representation of ErLam\n"  ++
-        "--to_beam\t generate a BEAM Module to load by Erl VM\n"    ++
+%        "--to_forms\t generate intermediate Erlang Abstract Form\n" ++
+%        "--to_erl\t generate the Erlang representation of ErLam\n"  ++
+%        "--to_beam\t generate a BEAM Module to load by Erl VM\n"    ++
         "--no_escript\t toggle off the standalone EScript generation\n",
     io:put_chars(Usage).
 
@@ -78,9 +78,9 @@ usage() ->
 %% @doc Pretty print the options for file compilation.
 pbuild( Opts ) ->
     Out = 
-        pm(to_forms,Opts)   ++"to_forms " ++
-        pm(to_erl,Opts)     ++"to_erl "   ++
-        pm(to_beam,Opts)    ++"to_beam "  ++
+%        pm(to_forms,Opts)   ++"to_forms " ++
+%        pm(to_erl,Opts)     ++"to_erl "   ++
+%        pm(to_beam,Opts)    ++"to_beam "  ++
         pm(to_escript,Opts) ++"to_escript",
     lists:flatten(Out).
 
