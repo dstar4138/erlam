@@ -140,10 +140,9 @@ stepall( AST ) ->
 stepall( ProcID, AST, ENV ) ->
     check_msgs(),
     case erlam_rts:step( ProcID, AST, ENV ) of
-        {ok, NextAST} -> stepall( ProcID, NextAST, ENV );
         {ok, NAST, NENV} -> stepall( ProcID, NAST, NENV );
         {stop, Val} -> {ok, Val};
-        {stop, Val, Sleep} -> % Instead of stopping, just hang and continue.
+        {hang, Val, Sleep} -> % Instead of stopping, just hang and continue.
             timer:sleep( Sleep ),
             stepall( ProcID, Val, ENV ); 
         {error, Reason} -> {error, Reason}

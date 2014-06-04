@@ -54,7 +54,8 @@ init([ ID ]) ->
 
 %% @private
 %% @doc Handling synch call messages.
-handle_call({swap, MyVal, Me}, _, State = #state{curval={V, D}}) ->
+handle_call({swap, MyVal, Me}, _, #state{curval={V, D}, curid=ID}=State ) ->
+    ?DEBUG("SWAP(~p): ~p -> ~p [~p]~n",[ID,{Me,MyVal}, V, D]),
     case check_dict( Me, V, D ) of
         {swap, OtherVal, NewCur} ->
             {reply, OtherVal, State#state{curval=NewCur}};
@@ -112,6 +113,7 @@ check_dict( Me, V, D ) ->
     case dict:find( Me, D ) of
         error -> false; % No waiting value for proc.
         {ok, Val} -> % Waiting value for proc.
+            ?DEBUG("SWAP SUCCESS~n"),
             NewCur = {V, dict:erase(Me,D)}, 
             {swap, Val, NewCur}
     end.

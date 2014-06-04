@@ -1,12 +1,11 @@
-%% An Erlam Single Core Scheduler.
-%%
-%%  This is an example of a single core round-robin scheduler. It can be 
-%%  modified to use a different default number of reductions before jumping
-%%  to the next process.
-%%
-
--module(erlam_sched_single).
--behavior(erlam_scheduler).
+%%% A Single-Core CML based Dual-Queue Scheduler.
+%%%
+%%% Utilizes a two level queue and will monitor a process for communication.
+%%% In the event of communication, it will mark it as a comunication-bound
+%%% process.
+%%%
+-module(erlam_sched_single_cml).
+-behaviour(erlam_scheduler).
 
 %% General Debugery.
 -include("debug.hrl").
@@ -20,14 +19,14 @@
 
 -record( internal_state, {  cur_proc = nil,
                             cur_reduc = 0,
-                            procs = queue:new() } ).
+                            procs = erlam_cml_dualqueue:new() } ).
 
 %%% ==========================================================================
 %%% Erlam Scheduler Public API
 %%% ==========================================================================
 
 %% @doc Return the Scheduler topology for this scheduler implementation. This
-%%   uses only Processor0, and will round robit on an internal work queue.
+%%   uses only Processor0, and will round robit on the primary work queue.
 %% @end
 layout( _CPUTop, _Opts ) ->
     ProcID = 0,                % Bind Scheduler to Processor with ID = 0.
@@ -65,17 +64,12 @@ spawn_process( Process, #internal_state{procs=P} = State ) ->
 %%% ==========================================================================
 
 %% @hidden
-%% @doc Implements the fair round-robin selection from the 'procs' queue.
+%% @doc Implements the CML based picker which looks at the dual level queue
+%%   to select a process from the primary or secondary queues.
+%% @end
 pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
-    {Selection, Queue} =
-        case queue:out( P ) of
-            {empty, _} -> {C,P}; %% Only one process, so repeat.
-            {{value,V},Q} -> {V,Q}
-        end,
-    NewQueue = case C of nil -> Queue; _ -> queue:in(C, Queue) end,
-    State#internal_state{ cur_proc = Selection,
-                          cur_reduc = ?MAX_REDUCS,
-                          procs = NewQueue }.
+    ok. %TODO
+
 
 %% @hidden
 %% @doc Perform a reduction.

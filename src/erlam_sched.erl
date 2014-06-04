@@ -50,10 +50,12 @@
 %%   scheduling options and nothing more.
 %% @end  
 run( SchedOpts, Expression ) ->
-    {ok, PrimaryProcID} = erlam_sched_sup:startup( SchedOpts ),
+    {ok, PrimaryProcID, Pid} = erlam_sched_sup:startup( SchedOpts ),
     spawn_to_primary(PrimaryProcID, Expression),
     init_ack(), %% Trigger the start of computation.
-    hang_for_result(). % Sleep until result message.
+    Result = hang_for_result(). %, % Sleep until result message.
+    %erlam_sched_sup:shutdown( Pid ), % Cleanup of supervisor and schedulers
+    %Result.
 
 %% @doc Spawn an Erlam function as a new process using the loaded scheduling
 %%   behaviour. This implementation is kinda tricky: the process which calls
@@ -127,6 +129,7 @@ stopall() ->
 %%   We save some values in the scheduler process dictionary for quick access
 %%   and then abstract some callback functions for accessing and manipulating
 %%   them. 
+-define(STARTER, starter).
 -define(PD_LPU_ID,lpuid).     %The logical processing units id this is bound to.
 -define(PD_MSG_HANG,msghang). %How long until we resign hope on getting a msg.
 -define(PD_MSG_MAX,msgmax).   %The max internals we may handle per step.
@@ -145,7 +148,7 @@ broadcast( Message ) ->
 %%   for passing a process between servers.
 %% @end  
 send( ProcID, Message ) ->
-    pg:send( ?SCHEDULER_GROUP, {sched_msg, ProcID, Message}).
+    pg:esend( ?SCHEDULER_GROUP, {sched_msg, ProcID, Message}).
 
 %% @doc Check the local message queue (other side of send/2). Note that the
 %%   only time this will valid is during a schedmodule:step/2 call.
@@ -155,15 +158,12 @@ check_mq( 0 ) -> false;
 check_mq( N ) ->
     ProcID = get( ?PD_LPU_ID ), 
     Hang = get( ?PD_MSG_HANG ),
-    ?DEBUG("--(~p)Checking MQ ~n",[ProcID]),
     receive 
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,ProcID,M}} -> 
-            ?DEBUG("GOT(~p) ~p~n",[ProcID,M]),
             {ok, M};
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,_,_}} -> %Other LPU
              check_mq( N-1 );
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,M}} ->
-            ?DEBUG("GOT ~p~n",[M]),
             {ok, M};
         {crashed_member,?SCHEDULER_GROUP,_Pid} -> % We'll die too shortly.
             check_mq( N-1 );
@@ -178,7 +178,9 @@ get_id() -> get( ?PD_LPU_ID ).
 
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
-    when is_pid( ResultAcceptor ) -> ResultAcceptor!{result,Val}.
+    when is_pid( ResultAcceptor ) -> 
+        ?DEBUG("Sending RESULT: ~p~n",[Val]),
+        ResultAcceptor!{result,Val}.
 
 %%% ==========================================================================
 %%% Private Scheduler Process API
@@ -274,7 +276,8 @@ server_loop( PrevStatus, ImplState ) ->
 %% @doc Handles the internal scheduler cleanup.
 server_stop( ImplState ) ->
     run_cleanup( ImplState ),
-    exit(normal).
+    ?DEBUG("GOT SHUTDOWN!~n"),
+    exit( shutdown ).
      
 %% ---------------------------
 %% Behaviour callback wrappers
@@ -366,6 +369,8 @@ flush_tmq( Queue, ProcID ) ->
                         flush_tmq([Msg|Queue], ProcID);
         {pg_message, _, _, {sched_internal, _, _}} -> % No match on ProcID 
                         flush_tmq( Queue, ProcID );
+        {crashed_member,?SCHEDULER_GROUP,_Pid} -> % We'll die too shortly.
+                        flush_tmq( Queue, ProcID );
         {sched_spawn, _}=Msg  -> 
                         flush_tmq([Msg|Queue], ProcID);
         Other -> 
@@ -376,7 +381,8 @@ flush_tmq( Queue, ProcID ) ->
 handle_internal_queue( ImplState, [] ) -> {ok, ImplState};
 handle_internal_queue( ImplState, [H|R] ) ->
     case H of
-        stop -> 
+        stop ->
+           ?DEBUG("GOT STOP MESSAGE:~n"), 
             put(?PD_STATUS, stopping),
             {stop, ImplState};
         {sched_spawn, Process} ->
@@ -386,8 +392,11 @@ handle_internal_queue( ImplState, [H|R] ) ->
                  stop -> 
                     put(?PD_STATUS, stopping),
                     {stop, ImplState}
-            end)
+            end);
         %TODO: Missing any internal messages?
+        _ -> %Ignore
+            ?DEBUG("Unknown internal mesage ~p~n",[H]),
+            handle_internal_queue( ImplState, R )
     end. 
 
 
@@ -395,8 +404,10 @@ handle_internal_queue( ImplState, [H|R] ) ->
 %% @doc Checks the state determined by the stepper and message handlers, to 
 %%   determine whether to stop the scheduler, or continue stepping.
 %% @end
-decide_future( _, {stop,State} ) -> server_stop( State );
-decide_future( PrevStatus, State )  -> server_loop( PrevStatus, State ).
+decide_future( stop, State ) -> server_stop( State );
+decide_future( PrevStatus, State )  -> 
+    %TODO: Log state before moving to next step.
+    server_loop( PrevStatus, State ).
 
 %% @hidden
 %% @doc Join a process group. Wraps creation as well (in case it doesn't exist).

@@ -62,17 +62,18 @@ safe_spawn( Fun, ENV ) ->
 %%   Errors are propagated back up to the scheduler for handling.
 -spec safe_step( erlam_process() ) -> {ok, erlam_process()} 
                                     | {stop, erlam_process()}
+                                    | {hang, erlam_process(), non_neg_integer()}
                                     | {error, Reason :: any()}.
 safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
+%    ?DEBUG("STEPPING: ~p~n",[F]),
     case ?is_blocked(P) of
         true -> {ok, P};
         false -> (case step( ProcID, F, E ) of
-                      {ok, Next} -> {ok, P#process{exp=Next}};
                       {ok, Next, NE} -> {ok, P#process{exp=Next,env=NE}};
                       {stop, Val} -> {stop, P#process{exp=Val}};
-                      {stop, Val, Sleep} -> 
+                      {hang, Val, Sleep} -> 
                           Hang = {os:timestamp(), Sleep},
-                          {stop, P#process{exp=Val,hang=Hang}};
+                          {hang, P#process{exp=Val,hang=Hang}, Sleep};
                       {error, Reason} -> {error, Reason}
                   end)
     end.
@@ -81,7 +82,6 @@ safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
 -spec safe_hang( pos_integer() ) -> 1.
 safe_hang( X ) ->
     Seconds = timer:seconds( X ),
-    ?DEBUG("SLEEPING: ~p~n",[Seconds]),
     throw({sleep, Seconds}). %Handled upon return of step/2,
 
 %%%===================================================================
@@ -93,6 +93,11 @@ safe_hang( X ) ->
 %%   by the interpreter via a loop. This is really gross, so I only wanted to
 %%   do it once.
 %% @end
+-spec step( reference(), erlam_exp(), [tuple()] ) ->
+    {ok, erlam_exp(), [tuple()]} 
+    | {halt, erlam_exp(), integer()} % Returns when the result of the step causes a sleep or block (hang/swap)
+    | {stop, erlam_exp()} % Returns when the expression is a value, and can't be stepped further.
+    | {error, any()}. % Returned only when there is a catasrophic error.
 step( _, newchan, _ENV ) ->
     ChannelID = erlam_chan_serve:get_new_chan(),
     {stop, erlam_lang:new_chan( ChannelID )};
@@ -108,12 +113,12 @@ step( _, #erlam_var{name=N}, ENV ) ->
     end;
 step( ProcID, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
     case is_value( E1 ) of
-        {true, 0} -> {ok, E3};
-        {true, _} -> {ok, E2};
+        {true, 0} -> {ok, E3, ENV};
+        {true, _} -> {ok, E2, ENV};
         false -> 
             (case interstep( ProcID, E1, ENV ) of
-                {NV,NENV}       -> {ok, IF#erlam_if{exp=NV}, NENV};
-                {NV,_,Sleep} -> {stop, IF#erlam_if{exp=NV}, Sleep}
+                {ok,NV,NENV}    -> {ok, IF#erlam_if{exp=NV}, NENV};
+                {hang,NV,Sleep} -> {hang, IF#erlam_if{exp=NV}, Sleep}
             end)
     end;
 step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
@@ -122,21 +127,21 @@ step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
             (case is_value( E ) of
                  {true, _} -> 
                      (case erlam_chan:swap( Chan, E, ProcID ) of
-                          blocked -> {stop, Swap};
-                          Val -> {ok, Val}
+                          blocked -> {hang, Swap, 0};
+                          Val     -> {ok, Val, ENV}
                       end);
                  false -> 
                      (case interstep( ProcID,  E, ENV ) of
-                          {NV,NENV}       -> {ok, Swap#erlam_swap{val=NV}, NENV};
-                          {NV,_,Sleep} -> {stop, Swap#erlam_swap{val=NV}, Sleep}
+                          {ok,NV,NENV}    -> {ok, Swap#erlam_swap{val=NV}, NENV};
+                          {hang,NV,Sleep} -> {hang, Swap#erlam_swap{val=NV}, Sleep}
                       end)
              end);
         {true, Unknown} -> 
             {error, {badchan, Unknown}};
         false ->
             (case interstep( ProcID, C, ENV ) of
-                 {NV,NENV} -> {ok, Swap#erlam_swap{chan=NV}, NENV};
-                 {NV,_,Sleep} -> {stop, Swap#erlam_swap{chan=NV}, Sleep}
+                 {ok,NV,NENV}    -> {ok, Swap#erlam_swap{chan=NV}, NENV};
+                 {hang,NV,Sleep} -> {hang, Swap#erlam_swap{chan=NV}, Sleep}
             end)
     end;
 step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
@@ -151,8 +156,8 @@ step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
             {stop, 0}; %  because spawn errors out if it's not a unit-function.
         false -> 
             (case interstep( ProcID, E, ENV ) of
-                {NV,NENV} -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
-                {NV,_,Sleep} -> {stop, Spawn#erlam_spawn{exp=NV}, Sleep}
+                {ok,NV,NENV}    -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
+                {hang,NV,Sleep} -> {hang, Spawn#erlam_spawn{exp=NV}, Sleep}
             end)
     end;
 step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
@@ -161,7 +166,7 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
             (case is_value( E2 ) of
                  {true, _} ->
                      (case V of
-                         nil_var -> {ok, E};%, ENV};
+                         nil_var -> {ok, E, ENV};
                          _ -> 
                             VarName = V#erlam_var.name,
                             {NewName, NewE} = check_and_clean(VarName, E, ENV),
@@ -169,8 +174,8 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                       end);
                  false -> 
                      (case interstep( ProcID, E2, ENV ) of
-                         {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
+                         {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
+                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep}
                      end)
              end);
         {true, #erlam_erl{arity=A,func=F}} ->
@@ -179,15 +184,15 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                      step_erl( A, F, E2, ENV ); 
                  false ->
                      (case interstep( ProcID, E2, ENV ) of
-                         {NV, NENV} -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {NV, _, Sleep} -> {stop, App#erlam_app{exp2=NV}, Sleep}
+                         {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
+                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep}
                      end)
              end);
         {true, _} -> {error, badapp};
         false -> 
             (case interstep( ProcID, E1, ENV ) of
-                 {NV, NENV} ->{ok, App#erlam_app{exp1=NV}, NENV};
-                 {NV, _, Sleep} -> {stop, App#erlam_app{exp1=NV}, Sleep}
+                 {ok, NV, NENV}    -> {ok, App#erlam_app{exp1=NV}, NENV};
+                 {hang, NV, Sleep} -> {hang, App#erlam_app{exp1=NV}, Sleep}
             end)
     end.
 
@@ -197,10 +202,10 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
 %% @end
 interstep( ProcID, E, ENV ) ->
     case step( ProcID, E, ENV ) of
-        {ok, NE} -> {NE, ENV};
-        {ok, NE, NENV} -> {NE, NENV};
-        {stop, V} -> {V, ENV};
-        {stop, V, Sleep} -> {V, ENV, Sleep}
+        {ok, NE}       -> {ok, NE, ENV};
+        {ok, NE, NENV} -> {ok, NE, NENV};
+        {stop, V}      -> {ok, V, ENV};
+        {hang, V, Sleep} -> {hang,V,Sleep}
     end.
 
 %% @hidden
@@ -222,7 +227,7 @@ step_erl( A, F, E, _Env ) ->
         throw:{sleep,Time} -> % The function can safely hang by throwing
                               % A custom exception. We will return a special
                               % Event attached to the 'stop' request.   
-            {stop, 1, Time};
+            {hang, 1, Time};
         _:_ -> {stop, 0} 
     end.
 

@@ -35,7 +35,8 @@
 
 %% @doc Start the global queue, and link it to the main scheduler.
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    Primary = erlam_sched:get_id(),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Primary], []).
 
 %% @doc Enqueue a new process to the Global Queue.
 spawn_to_queue( Process ) ->
@@ -60,11 +61,17 @@ peekpush_to_queue( Process ) ->
 %%% gen_server callbacks
 %%%===================================================================
 
+%% @doc Add the primary process to the initial queue.
+init([PrimaryID]) -> 
+    State = #state{},
+    InitalQueue = State#state.comps,
+    {ok, State#state{comps=queue:in(PrimaryID,InitalQueue)}}.
+
+
 %% @doc Handle all blocking requests from schedulers. This would include
 %%   process and queue requests.
 %% @end 
 handle_call( {waiting, SelfRef}, _From, #state{procs=P, comps=C}=State ) ->
-    ?DEBUG("Got waiter: ~p, (~p)~n",[SelfRef, State]),
     case queue:is_empty( P ) of
         true -> %% No waiting processes, add Self to comps queue.
             NewState = State#state{comps=queue:in(SelfRef,C)},
@@ -75,7 +82,6 @@ handle_call( {waiting, SelfRef}, _From, #state{procs=P, comps=C}=State ) ->
             {reply, {ok,Proc}, NewState}
     end;
 handle_call( {peekpush, Process}, _From, #state{procs=P}=State ) -> 
-    ?DEBUG("Got peekpush: ~p, (~p)~n",[Process, State]),
     case queue:is_empty( P ) of
         true ->
             {reply, {ok, Process}, State};
@@ -89,7 +95,6 @@ handle_call( {peekpush, Process}, _From, #state{procs=P}=State ) ->
 %%   process spawns, etc.
 %% @end
 handle_cast( {spawn, Process}, #state{procs=P, comps=C}=State ) ->
-    ?DEBUG("Got spawn: ~p, (~p)~n",[Process, State]),
     NewState = case queue:is_empty( C ) of
                     true -> %% No waiting computers, push to procs queue
                         State#state{procs=queue:in(Process,P)};
@@ -101,7 +106,6 @@ handle_cast( {spawn, Process}, #state{procs=P, comps=C}=State ) ->
     {noreply, NewState}.
 
 %%% The following are default gen_server behavior callbacks and are not used.
-init([]) -> {ok, #state{}}.
 handle_info(_Info, State) -> {noreply, State}.
 terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
@@ -116,6 +120,5 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%   This assumes the processor is still waiting for a process.
 %% @end
 send_process( Process, ProcID ) ->
-    ?DEBUG("SENDING PROCESS! (~p, ~p)~n",[ProcID, Process]), 
     erlam_sched:send( ProcID, {queue_spawn, Process} ).
 

@@ -11,6 +11,11 @@
 
 % General Debuggery
 -include("debug.hrl").
+-define(inspect(Process),case Process of 
+                             X when is_record(X,process) -> 
+                                 erlam_trans:ast2pp(Process#process.exp); 
+                             _ -> io_lib:format("~p", [Process])
+                         end).
 
 % Erlam Scheduler Callbacks:
 -export([layout/2, init/1, cleanup/1, tick/2, spawn_process/2]).
@@ -31,6 +36,10 @@
 %%   Primary scheduler is on #0.
 %% @end
 layout( Topology, Options ) -> 
+%    [ {0,?MODULE,[{primary,true},{processor,0,3},{debug,true}]}
+%    , {1,?MODULE,[{primary,false},{processor,1,3},{debug,true}]}
+%    , {2,?MODULE,[{primary,false},{processor,2,3},{debug,true}]}
+%    ].
     erlam_scheduler:layout(?MODULE, Topology, Options).
 
 %% @doc Return the state of the initial 
@@ -38,9 +47,8 @@ init( Options ) ->
     Primary = is_primary( Options ),
     Debug = is_debug( Options ),
     waiting = find_or_make_mq( Primary ),
-    ?DEBUG("INIT=>(~p,~p)~n",[Primary,Options]),
     {ok, #state{ primary=Primary,
-                 debugging=Debug }}. 
+                 debugging=Debug }}.
 
 
 %% @doc Clean up the state of the system for shutdown 
@@ -53,7 +61,6 @@ cleanup( _ ) -> ok.
 %% @end 
 spawn_process( Process, State ) ->
     ok = erlam_sched_global_queue:spawn_to_queue( Process ),
-    ?DEBUG("SPAWNED PROCESS! ~p~n",[Process]),
     {ok, State}.
 
 %% @doc If we have a process, reduce it until we hit our reduction limit.
@@ -72,13 +79,9 @@ tick( running, #state{cur_reduc=_}=State ) -> reduce( State ).
 wait_mode( State ) -> 
     case erlam_sched:check_mq() of
         false -> 
-            ?DEBUG("Tick, waiting, empty MQ~n"),
             {ok, waiting, State};
-        {ok, Msg} -> 
-            ?DEBUG("Tick, waiting, Found Message ( ~p )~n",[Msg]),
-            Res = process_mail( Msg, State ),
-            ?DEBUG("++++++++++RET: ~p~n",[Res]),Res
-
+        {ok, Msg} ->
+            process_mail( Msg, State )
     end.
 
 
@@ -88,52 +91,42 @@ wait_mode( State ) ->
 
 %% @doc Process a message we received on the inter-process channel.
 process_mail( {queue_spawn, Process}, State ) ->
-    ?DEBUG("[Valid Process Received! (~p~)]~n",[Process]),
-    {ok, running, State#state{ cur_proc=Process, cur_reduc=?MAX_STEPS }};
-process_mail( UNKNOWN, State ) ->
-    ?DEBUG("UNKNOWN MESSAGE TO PROCESS: ~p~n",[UNKNOWN]).
+    {ok, running, State#state{ cur_proc=Process, cur_reduc=?MAX_STEPS }}.
 
 %% @doc Get a new process, or return to waiting.
 get_new_proc( #state{cur_proc=Proc} = State ) ->
-    case Proc of 
-        nil -> 
-            erlam_sched_global_queue:advertise_waiting(),
-            {ok, waiting, State};
-        _ ->
-            (case 
-                 erlam_sched_global_queue:peekpush_to_queue( Proc ) 
-             of
-                 waiting -> {ok, waiting, State#state{cur_proc=nil}};
-                 {ok,P}  -> {ok, running, State#state{cur_proc=P,
-                                                      cur_reduc=?MAX_STEPS}}
-             end)
+    Response = case Proc of 
+        nil -> erlam_sched_global_queue:advertise_waiting();
+        _   -> erlam_sched_global_queue:peekpush_to_queue( Proc )
+    end,
+    case Response of
+        waiting   -> {ok, waiting, State#state{cur_proc=nil, cur_reduc=0}};
+        {ok, New} -> {ok, running, State#state{cur_proc=New,
+                                                         cur_reduc=?MAX_STEPS}}
     end.
 
 %% @doc Step the process and reduce our reduction count.
 reduce( #state{ cur_proc=P, cur_reduc=R } = State ) ->
     case erlam_rts:safe_step( P ) of
         {ok, NP} -> {ok, running, State#state{cur_proc=NP, cur_reduc=R-1}};
-        {stop,NP} -> check_if_halt_or_stop( NP, State );
+        {stop,NP} -> check_on_stop( NP, State );
+        {hang, NP, 0} -> %% We are swaping, so ask for a new proc
+            {ok, running, State#state{ cur_proc=NP, cur_reduc=0}};
+        {hang, NP, Sleep} -> 
+            timer:sleep( Sleep ), % Halt the world style sleep!
+            {ok, running, State#state{ cur_proc=NP, cur_reduc=R-1 }};
         {error, Reason} -> exit( Reason )
     end.
-check_if_halt_or_stop( Process, State ) ->
-    case {?get_hangfortime( Process ), ?is_primary( Process )} of
+check_on_stop( Process, State ) ->
+    case ?is_primary( Process ) of
         %% If it finished and was the primary process, return it!
-        {nil, true} ->
-            ?DEBUG("GOT TO RETURN THE MESSAGE---------------------~n"), 
+        true ->
             erlam_sched:return( Process ), %will handle unwraping
             {stop, State};
         %% If it finished and was not primary, then drop it and move to next
-        {nil, false} -> 
-            {ok, running, State#state{ cur_proc=nil, cur_reduc=0 }};
-        %% We are sleeping, so hang (stop the world style), and set reductions
-        %% to zero (ignoring what they were before). Will push the process to
-        %% the end of the queue.
-        {T,_} -> 
-            hang( T ),
-            {ok, running, State#state{ cur_reduc=0 }}
+        false -> 
+            {ok, running, State#state{ cur_proc=nil, cur_reduc=0 }}
     end.
-hang( Time ) -> timer:sleep( Time ).
 
 
 %%% ==========================================================================

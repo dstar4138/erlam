@@ -9,7 +9,7 @@
 -include("debug.hrl").
 
 %% RTS API
--export([startup/1]).
+-export([startup/1, shutdown/1]).
 
 %% API
 -export([start_link/1]).
@@ -30,10 +30,15 @@
 startup( Options ) ->
     {PrimaryID, Children} = generate_children( Options ),
     case start_link( Children ) of
-        {ok, _Pid} ->{ok, PrimaryID};
+        {ok, Pid} ->{ok, PrimaryID, Pid};
         ignore -> {error, rts_failure};
         {error,R} -> {error, R}
     end. 
+
+%% @doc Shut down all children and the supervisor itself.
+shutdown( Pid ) -> 
+    erlam_sched:stopall() %.
+   ,exit( Pid, shutdown ).
 
 %% @doc Start the supervisor and link it to the calling process.
 start_link( Children ) ->
