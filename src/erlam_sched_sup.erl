@@ -76,7 +76,7 @@ generate_children( Options ) ->
     % are able to have multiple scheduler modules all working on the same 
     % system.) 
     Layout = erlang:apply( Module, layout, [ Topology, Options ] ),
-    ?DEBUG("LAYOUT: ~p~n",[Layout]),
+%    ?DEBUG("LAYOUT: ~p~n",[Layout]),
     PrimaryID = get_primary( Layout ),
     Children = layout_to_children( Layout ),
     {PrimaryID, Children}.

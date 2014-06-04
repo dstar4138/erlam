@@ -50,12 +50,10 @@
 %%   scheduling options and nothing more.
 %% @end  
 run( SchedOpts, Expression ) ->
-    {ok, PrimaryProcID, Pid} = erlam_sched_sup:startup( SchedOpts ),
+    {ok, PrimaryProcID, _Pid} = erlam_sched_sup:startup( SchedOpts ),
     spawn_to_primary(PrimaryProcID, Expression),
     init_ack(), %% Trigger the start of computation.
-    Result = hang_for_result(). %, % Sleep until result message.
-    %erlam_sched_sup:shutdown( Pid ), % Cleanup of supervisor and schedulers
-    %Result.
+    hang_for_result(). %, % Sleep until result message.
 
 %% @doc Spawn an Erlam function as a new process using the loaded scheduling
 %%   behaviour. This implementation is kinda tricky: the process which calls
@@ -178,9 +176,7 @@ get_id() -> get( ?PD_LPU_ID ).
 
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
-    when is_pid( ResultAcceptor ) -> 
-        ?DEBUG("Sending RESULT: ~p~n",[Val]),
-        ResultAcceptor!{result,Val}.
+    when is_pid( ResultAcceptor ) -> ResultAcceptor!{result,Val}.
 
 %%% ==========================================================================
 %%% Private Scheduler Process API
@@ -276,7 +272,6 @@ server_loop( PrevStatus, ImplState ) ->
 %% @doc Handles the internal scheduler cleanup.
 server_stop( ImplState ) ->
     run_cleanup( ImplState ),
-    ?DEBUG("GOT SHUTDOWN!~n"),
     exit( shutdown ).
      
 %% ---------------------------

@@ -12,8 +12,8 @@ listing of each, to see more detail, see their subsequent bundled README.
 
 * _The Multi-Threaded Round-Robin Global-Queue Scheduler_ - A multi-core version
   of the previous scheduler. This uses a single global queue which all 
-  schedulers share. Instead of spin-locking, they advertise that they are waiting
-  and the queue will get back to them.
+  schedulers share. All waiting schedulers queue themselves and continuously
+  check the shared global queue.
 
 * _The Multi-Threaded Round-Robin Work-Stealing Scheduler_ - An improvement on
   the previous scheduler. Instead of a global queue, each scheduler maintains
