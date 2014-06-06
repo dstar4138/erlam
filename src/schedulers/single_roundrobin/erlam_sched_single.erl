@@ -84,6 +84,8 @@ reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=_Ps } = State ) ->
         {ok,NP} -> {ok, running, State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
         {stop,NP} -> check_on_stop( NP, State );
+        {yield, NP} -> 
+            {ok, running, State#internal_state{cur_proc=NP, cur_reduc=0}};
         {hang, NP, Sleep} -> 
         %% We are sleeping, so hang (stop the world style), and set reductions
         %% to zero (ignoring what they were before). Will push the process to

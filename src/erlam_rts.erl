@@ -61,6 +61,7 @@ safe_spawn( Fun, ENV ) ->
 %% @doc Safely step a process and keep the local environment up to date.
 %%   Errors are propagated back up to the scheduler for handling.
 -spec safe_step( erlam_process() ) -> {ok, erlam_process()} 
+                                    | {yield, erlam_process()}
                                     | {stop, erlam_process()}
                                     | {hang, erlam_process(), non_neg_integer()}
                                     | {error, Reason :: any()}.
@@ -71,9 +72,16 @@ safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
         false -> (case step( ProcID, F, E ) of
                       {ok, Next, NE} -> {ok, P#process{exp=Next,env=NE}};
                       {stop, Val} -> {stop, P#process{exp=Val}};
+                      {hang, Val, -1} ->
+                          {yield, P#process{exp=Val}};
                       {hang, Val, Sleep} -> 
                           Hang = {os:timestamp(), Sleep},
                           {hang, P#process{exp=Val,hang=Hang}, Sleep};
+                      {hang, Val, NE, -1} ->
+                          {yield, P#process{exp=Val,env=NE}};
+                      {hang, Val, NE, Sleep} ->
+                          Hang = {os:timestamp(), Sleep},
+                          {hang, P#process{exp=Val,env=NE,hang=Hang}, Sleep};
                       {error, Reason} -> {error, Reason}
                   end)
     end.
@@ -118,7 +126,9 @@ step( ProcID, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
         false -> 
             (case interstep( ProcID, E1, ENV ) of
                 {ok,NV,NENV}    -> {ok, IF#erlam_if{exp=NV}, NENV};
-                {hang,NV,Sleep} -> {hang, IF#erlam_if{exp=NV}, Sleep}
+                {hang,NV,Sleep} -> {hang, IF#erlam_if{exp=NV}, Sleep};
+                {hang,NV,NENV,Sleep} -> 
+                     {hang, IF#erlam_if{exp=NV}, NENV, Sleep}
             end)
     end;
 step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
@@ -127,13 +137,15 @@ step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
             (case is_value( E ) of
                  {true, _} -> 
                      (case erlam_chan:swap( Chan, E, ProcID ) of
-                          blocked -> {hang, Swap, 0};
-                          Val     -> {ok, Val, ENV}
+                          blocked -> {hang, Swap, -1};
+                          Val     -> {hang, Val, ENV, -1}
                       end);
                  false -> 
                      (case interstep( ProcID,  E, ENV ) of
                           {ok,NV,NENV}    -> {ok, Swap#erlam_swap{val=NV}, NENV};
-                          {hang,NV,Sleep} -> {hang, Swap#erlam_swap{val=NV}, Sleep}
+                          {hang,NV,Sleep} -> {hang, Swap#erlam_swap{val=NV}, Sleep};
+                          {hang,NV,NENV,Sleep} -> 
+                                {hang, Swap#erlam_swap{val=NV}, NENV, Sleep}
                       end)
              end);
         {true, Unknown} -> 
@@ -141,7 +153,9 @@ step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
         false ->
             (case interstep( ProcID, C, ENV ) of
                  {ok,NV,NENV}    -> {ok, Swap#erlam_swap{chan=NV}, NENV};
-                 {hang,NV,Sleep} -> {hang, Swap#erlam_swap{chan=NV}, Sleep}
+                 {hang,NV,Sleep} -> {hang, Swap#erlam_swap{chan=NV}, Sleep};
+                 {hang,NV,NENV,Sleep} -> 
+                     {hang, Swap#erlam_swap{chan=NV}, NENV, Sleep}
             end)
     end;
 step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
@@ -157,7 +171,9 @@ step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
         false -> 
             (case interstep( ProcID, E, ENV ) of
                 {ok,NV,NENV}    -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
-                {hang,NV,Sleep} -> {hang, Spawn#erlam_spawn{exp=NV}, Sleep}
+                {hang,NV,Sleep} -> {hang, Spawn#erlam_spawn{exp=NV}, Sleep};
+                {hang, NV, NENV, Sleep} ->
+                              {hang, Spawn#erlam_spawn{exp=NV}, NENV, Sleep}
             end)
     end;
 step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
@@ -175,7 +191,9 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                  false -> 
                      (case interstep( ProcID, E2, ENV ) of
                          {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep}
+                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep};
+                         {hang, NV, NENV, Sleep} ->
+                              {hang, App#erlam_app{exp2=NV}, NENV, Sleep}
                      end)
              end);
         {true, #erlam_erl{arity=A,func=F}} ->
@@ -185,14 +203,19 @@ step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
                  false ->
                      (case interstep( ProcID, E2, ENV ) of
                          {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep}
+                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep};
+                         {hang, NV, NENV, Sleep} ->
+                              {hang, App#erlam_app{exp2=NV}, NENV, Sleep}
+
                      end)
              end);
         {true, _} -> {error, badapp};
         false -> 
             (case interstep( ProcID, E1, ENV ) of
                  {ok, NV, NENV}    -> {ok, App#erlam_app{exp1=NV}, NENV};
-                 {hang, NV, Sleep} -> {hang, App#erlam_app{exp1=NV}, Sleep}
+                 {hang, NV, Sleep} -> {hang, App#erlam_app{exp1=NV}, Sleep};
+                 {hang, NV, NENV, Sleep} ->
+                    {hang, App#erlam_app{exp1=NV}, NENV, Sleep}
             end)
     end.
 
@@ -205,7 +228,8 @@ interstep( ProcID, E, ENV ) ->
         {ok, NE}       -> {ok, NE, ENV};
         {ok, NE, NENV} -> {ok, NE, NENV};
         {stop, V}      -> {ok, V, ENV};
-        {hang, V, Sleep} -> {hang,V,Sleep}
+        {hang, V, Sleep} -> {hang,V,Sleep};
+        {hang, V, NENV, Sleep} -> {hang, V, NENV, Sleep}
     end.
 
 %% @hidden

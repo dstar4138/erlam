@@ -82,7 +82,7 @@ reduce( #state{ cur_proc=P, cur_reduc=R } = State ) ->
     case erlam_rts:safe_step( P ) of
         {ok, NP} -> {ok, running, State#state{cur_proc=NP, cur_reduc=R-1}};
         {stop,NP} -> check_on_stop( NP, State );
-        {hang, NP, 0} -> %% We are swaping, so ask for a new proc
+        {yield, NP} -> %% We are swaping, so ask for a new proc, in meantime.
             {ok, running, State#state{ cur_proc=NP, cur_reduc=0}};
         {hang, NP, Sleep} -> 
             timer:sleep( Sleep ), % Halt the world style sleep!
