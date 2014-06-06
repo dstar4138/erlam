@@ -17,8 +17,6 @@
 %% Supervisor callbacks
 -export([init/1]).
 
--define(DEFAULT_SCHED_MOD, erlam_sched_global).
-
 -define(CHILD(Id, Mod, Type, Args), {Id, {Mod, start_link, Args},
                                      permanent, 5000, Type, [Mod]}).
 
@@ -37,8 +35,8 @@ startup( Options ) ->
 
 %% @doc Shut down all children and the supervisor itself.
 shutdown( Pid ) -> 
-    erlam_sched:stopall() %.
-   ,exit( Pid, shutdown ).
+    erlam_sched:stopall(),
+    exit( Pid, shutdown ).
 
 %% @doc Start the supervisor and link it to the calling process.
 start_link( Children ) ->
@@ -76,7 +74,6 @@ generate_children( Options ) ->
     % are able to have multiple scheduler modules all working on the same 
     % system.) 
     Layout = erlang:apply( Module, layout, [ Topology, Options ] ),
-%    ?DEBUG("LAYOUT: ~p~n",[Layout]),
     PrimaryID = get_primary( Layout ),
     Children = layout_to_children( Layout ),
     {PrimaryID, Children}.
@@ -111,5 +108,5 @@ layout_to_children( [{ID,Module,Opts}|Rest] ) ->
 %%   given then it falls back to the default scheduler.
 %% @end   
 get_sched_module( Options ) ->
-    proplists:get_value( scheduler, Options, ?DEFAULT_SCHED_MOD ).
+    proplists:get_value( scheduler, Options ).
 

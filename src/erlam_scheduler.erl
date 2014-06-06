@@ -8,6 +8,9 @@
 %% Default implementations
 -export( [ layout/3 ] ).
 
+%% Private
+-export( [ required/0 ] ).
+
 %%% ==========================================================================
 %%% Callback registration for Scheduler Behaviours
 %%% ==========================================================================
@@ -76,6 +79,13 @@ layout( Module, Topology, Options ) ->
 %%% ==========================================================================
 %%% Private Functionality
 %%% ==========================================================================
+
+%% @private
+%% @doc The required functionality and their arity. The RTS checks the loaded
+%%   scheduler module to verify it has what it needs.
+%% @end
+required() ->
+    [ {layout, 2}, {init,1}, {cleanup, 1}, {tick, 2}, {spawn_process,2} ].
 
 %% @hidden
 %% @doc Count the number of Logical Processing units in a cpu_topology().

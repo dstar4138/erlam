@@ -30,8 +30,10 @@
 -export([start_link/3, stop/1, stopall/0]).
 -export([init/4, sched_opts/0, init_ack/0]).
 
--define(SCHED_OPTS, [{processor,3}, % {_, 2, 8} - ID of 8 logical 
+-define(SCHED_OPTS, [{scheduler,2}, % The module which implements the behavior.
+                     {processor,3}, % {_, 2, 8} - ID of 8 logical 
                      {primary,2},   % {_, false} - or true if so.
+                     {options,2,optional},  % Per-behavior options. 
                      {debug,2,optional},         % {_, BOOL}
                      {message_hang,2,optional},  % {_,X} when X is in sec.
                      {message_buffer,2,optional} % {_,X} when X is a count.

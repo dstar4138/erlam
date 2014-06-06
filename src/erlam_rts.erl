@@ -17,9 +17,11 @@
 % PRIVATE 
 -export([step/3]).
 
--define(DEFAULT_SCHED, []).
+-define(DEFAULT_SCHED, [{scheduler, erlam_sched_global},
+                        {options, []}
+                       ]).
 -define(DEFAULT_STATE,  orddict:from_list([
-                            {verbose, false} % Print RTS Stats?
+                                    {verbose, false} % Print RTS Stats?
                                           ])).
 -define(DEFAULT_RTS,{?DEFAULT_SCHED,?DEFAULT_STATE}).
 
@@ -299,13 +301,19 @@ rand_atom( V ) -> list_to_atom(atom_to_list(V)++"@").
 
 %% @hidden
 %% @doc Parse the command line options passed into the compiled program.
-parse_options( [] ) -> ?DEFAULT_RTS;
-parse_options( ["-?"|_Rest] ) -> usage(), halt(0);
-parse_options( ["-h"|_Rest] ) -> usage(), halt(0);
-parse_options( ["-v"|Rest] ) ->
-    {Sched, Dict} = parse_options( Rest ),
-    {Sched, orddict:store(verbose, true, Dict)};
-parse_options( [Unknown|_] ) ->
+parse_options( Opts ) -> parse_options( Opts, ?DEFAULT_RTS ).
+parse_options( [], RTS ) -> RTS;
+parse_options( ["-?"|_Rest], _ ) -> usage(), halt(0);
+parse_options( ["-h"|_Rest], _ ) -> usage(), halt(0);
+parse_options( ["-l"|_Rest], _ ) -> list_scheds(), halt(0); 
+parse_options( ["-v"|Rest], {Sched, Opts} ) ->
+    UpOpts = orddict:store(verbose, true, Opts),
+    parse_options( Rest, {Sched, UpOpts}  );
+parse_options( ["-o",Name|_Rest], _ ) -> list_sched_opts( Name );
+parse_options( ["-s",Name|Rest], {Prev, Opts} ) ->
+    {ok, NewSchedOpts} = verify_scheduler( Name, Prev ),
+    parse_options( Rest,{NewSchedOpts, Opts} );
+parse_options( [Unknown|_], _ ) ->
     io:format("Unknown runtime option: ~s~n",[Unknown]), 
     halt(1).
 
@@ -314,10 +322,16 @@ parse_options( [Unknown|_] ) ->
 usage() ->
     EXEC = get_exec(),
     Usage = 
-        "usage: "++EXEC++" [options]\n"++
+        "usage: "++EXEC++" [options] -- [scheduler_options]\n"++
         "Options:\n" ++
-        "-? | -h\t This help message.\n" ++
-        "-v\t Turn on verbose runtime message.\n",
+        "  -? | -h \t This help message.\n" ++
+        "  -v\t\t Turn on verbose runtime message.\n" ++
+        "  -l\t\t List all possible schedulers and a short description.\n" ++
+        "  -s SCHED \t Select a scheduler to run the program with.\n"++
+        "  -o SCHED \t Get runtime options for the particular scheduler.\n"++
+        "\nScheduler Options:\n" ++
+        "\tNote that scheduler options are utilized on a per scheduler basis,"++
+        "\n\tto get a listing of them use the '-o' option above.\n",
     io:put_chars( Usage ).
 
 %% @hidden
@@ -335,5 +349,44 @@ is_value( Exp ) ->
     case erlam_lang:is_value( Exp ) of
         true  -> {true, Exp};
         false -> false
+    end.
+
+%% @hidden
+%% @doc Check if the module exists and is an erlam_scheduler implementer.
+verify_scheduler( SchedName, Prev ) ->
+    case erlam_schedulers:verify( SchedName ) of
+        {ok, ModuleName} -> 
+            {ok, lists:keystore(scheduler, 1, Prev, {scheduler,ModuleName})};
+        {error,{missing,Fun,Arity}} ->
+           io:format( "ERROR: Desired scheduler is missing callback: ~p/~p.~n",
+                    [Fun, Arity]),
+            halt(1);
+        {error, _} ->
+            io:format("ERROR: Scheduler '~s' does not exist on path.~n",
+                      [SchedName]),
+            halt(1)
+    end.
+
+%% @hidden
+%% @doc Print out the list of native schedulers.
+list_scheds() -> 
+    Out = lists:foldl( fun({F,D},R)-> R ++ io_lib:format( "~p\t~s~n",[F,D]) end,
+                       "Schedulers:\n", erlam_schedulers:list() ),
+    io:put_chars( Out ).
+
+%% @hidden
+%% @doc Print out the list of scheduler options and then halt.
+list_sched_opts( SchedName ) ->
+    case erlam_schedulers:verify( SchedName ) of
+        {ok, ModName} -> 
+            (case erlam_schedulers:get_options( ModName ) of
+                 false -> io:format("No Options Avaliable~n"),halt(0);
+                 {ok,Opts} -> 
+                     io:format("Scheduler Options:~n~p~n",[Opts]), halt(0)
+             end);
+        {error, _} -> 
+            io:format("ERROR: Scheduler '~s' does not exist on path.~n",
+                       [SchedName]),
+             halt(1)
     end.
 
