@@ -17,8 +17,8 @@
 %%% The layout perscribed to the particular CPU topology of the system by 
 %%% this particular scheduler module. Thus we could have multiple layouts based
 %%% on options and hardware layouts.
-%%%     [ { ProcID, SchedulerBehaviourModule, OptionsForInit }, ... ]
--type scheduler_desc() :: {non_neg_integer(), atom(), scheduler_opts()}.
+%%%     [ { ProcID, Primary, SchedulerBehaviourModule, OptionsForInit }, ... ]
+-type scheduler_desc() :: {non_neg_integer(), boolean(), atom(), scheduler_opts()}.
 -type scheduler_layout() :: [ scheduler_desc() ]. 
                             
 %%% Options that are passed into the scheduler at runtime are as follows:

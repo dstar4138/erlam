@@ -14,13 +14,16 @@
 
 % Erlam Scheduler Callbacks:
 -export([layout/2, init/1, cleanup/1, tick/2, spawn_process/2]).
+-export([options/0]).
+
+-define(MAX_STEPS, 20).
 
 % Default Scheduler's State:
 -record(state,{ primary  = false, % Quick check if current sched is primary.
                 cur_proc = nil,
-                cur_reduc = 0
+                cur_reduc = 0,
+                max_reduc = ?MAX_STEPS 
               }).
--define(MAX_STEPS, 20).
 
 %%% ==========================================================================
 %%% ErLam Scheduler Callbacks
@@ -34,9 +37,10 @@ layout( Topology, Options ) ->
 
 %% @doc Return the state of the initial 
 init( Options ) ->
-    Primary = is_primary( Options ),
+    Primary = erlam_sched:is_primary( ),
     ok = find_or_make_mq( Primary ),
-    {ok, #state{ primary=Primary }}.
+    State = default_state( Options ),
+    {ok, State#state{ primary=Primary }}.
 
 %% @doc Clean up the state of the system for shutdown 
 cleanup( #state{ primary = true } ) ->
@@ -59,9 +63,23 @@ tick( waiting, State ) -> get_new_proc( State );
 tick( running, #state{cur_reduc=0}=State ) -> get_new_proc( State );
 tick( running, #state{cur_reduc=_}=State ) -> reduce( State ).
 
+%% @private
+%% @doc Optional callback to specify that this scheduler takes options.
+options() ->
+    {ok, 
+     "max_reduc - The number of reductions on an expression before pick_next."
+    }.
+
+
 %%% ==========================================================================
 %%% Private Functionality
 %%% ==========================================================================
+
+%% @hidden 
+%% @doc Update the default state with the number of user specified reductions.
+default_state( Options ) ->
+    Reducs = proplists:get_value( max_reduc, Options, ?MAX_STEPS ),
+    #state{ max_reduc=Reducs }.
 
 %% @private
 %% @doc Get a new process, or return to waiting.
@@ -73,7 +91,7 @@ get_new_proc( #state{cur_proc=Proc} = State ) ->
     case Response of
         waiting   -> {ok, waiting, State#state{cur_proc=nil, cur_reduc=0}};
         {ok, New} -> {ok, running, State#state{cur_proc=New,
-                                                         cur_reduc=?MAX_STEPS}}
+                                               cur_reduc=get_mr(State)}}
     end.
 
 %% @private
@@ -112,9 +130,8 @@ check_on_stop( Process, State ) ->
 %%% ==========================================================================
 
 %% @hidden
-%% @doc Check options whether its the primary scheduler.
-is_primary( Options ) ->
-    proplists:get_value( primary, Options, false ).
+%% @doc Utility Function for getting max_reduc from state.
+get_mr( #state{max_reduc=MR} ) -> MR.
 
 %% @hidden
 %% @doc Make the FIFO queue for work sharing, only if primary.

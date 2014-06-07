@@ -24,20 +24,12 @@
 %PUBLIC 
 -export([return/1]).
 -export([broadcast/1, send/2, check_mq/0]).
--export([get_id/0]).
+-export([get_id/0,is_primary/0]).
 
 %PRIVATE
--export([start_link/3, stop/1, stopall/0]).
--export([init/4, sched_opts/0, init_ack/0]).
+-export([start_link/4, stop/1, stopall/0]).
+-export([init/5, init_ack/0]).
 
--define(SCHED_OPTS, [{scheduler,2}, % The module which implements the behavior.
-                     {processor,3}, % {_, 2, 8} - ID of 8 logical 
-                     {primary,2},   % {_, false} - or true if so.
-                     {options,2,optional},  % Per-behavior options. 
-                     {debug,2,optional},         % {_, BOOL}
-                     {message_hang,2,optional},  % {_,X} when X is in sec.
-                     {message_buffer,2,optional} % {_,X} when X is a count.
-                    ]).
 -define(DEFAULT_MESSAGE_HANG,    1). % Default is break after waiting a second.
 -define(DEFAULT_MESSAGE_BUFFER, -1). % Default is get everything
 
@@ -79,22 +71,12 @@ spawn( Fun, Env ) -> self() ! {sched_spawn, ?new_process( Fun, Env )}, ok.
 %% @doc Validate the options and then start the scheduler on a particular 
 %%   processor with a given implementation.
 %% @end  
-start_link( ProcID, SchedulerModule, Options ) -> 
-    case validate_options( Options ) of
-        ok  ->
-            Starter = self(), % This behaviour works like most gen_*, and forces
-                              % the implemented behavior to phone home after 
-                              % init/1 completes with success/failure.
-            Args = [ Starter, ProcID, SchedulerModule, Options ],
-            proc_lib:start_link( ?MODULE, init, Args );
-        Err -> Err
-    end.
-
-%% @private
-%% @doc Get the Scheduler options for the supervisor so that it can clean the
-%%   input for you.
-%% @end
-sched_opts() -> ?SCHED_OPTS.  
+start_link( ProcID, PrimaryID, SchedulerModule, Options ) ->
+        Starter = self(), % This behaviour works like most gen_*, and forces
+                          % the implemented behavior to phone home after 
+                          % init/1 completes with success/failure.
+        Args = [ Starter, ProcID, PrimaryID, SchedulerModule, Options ],
+        proc_lib:start_link( ?MODULE, init, Args ).
 
 %% @private
 %% @doc Triggers the fin-init stage, which is done by erlam_sched_sup:startup/1.
@@ -130,6 +112,7 @@ stopall() ->
 %%   and then abstract some callback functions for accessing and manipulating
 %%   them. 
 -define(STARTER, starter).
+-define(PD_PRIMARYID, primaryid).
 -define(PD_LPU_ID,lpuid).     %The logical processing units id this is bound to.
 -define(PD_MSG_HANG,msghang). %How long until we resign hope on getting a msg.
 -define(PD_MSG_MAX,msgmax).   %The max internals we may handle per step.
@@ -175,6 +158,11 @@ check_mq( N ) ->
 %% @doc Get the calling scheduler's Logical Processor's ID or ProcID.
 get_id() -> get( ?PD_LPU_ID ).
 
+%% @doc Check if the current ID is equal to the primary id. This will tell us if
+%%   the current LPU has been marked as primary by startup.
+%% @end
+is_primary() -> ( get(?PD_PRIMARYID) == get(?PD_LPU_ID) ).
+
 
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
@@ -193,19 +181,20 @@ return( #process{ exp=Val, resrep=ResultAcceptor } )
 %%   VM scheduler and telling it not to keep track of stats about it, we can
 %%   do that.
 %% @end
-init( Starter, ProcID, Module, Options ) ->
+init( Starter, ProcID, PrimaryID, Module, Options ) ->
     process_flag( scheduler, ProcID ), % Bind to Processor ID.
     process_flag( sensitive, true   ), % Remove all RT Stats gathering.
     process_flag( priority,  high   ), % Push the priority of the scheduler up.
     join_pg( ?SCHEDULER_GROUP ),       % Join a scheduler pool for msg passing.
-    initial_state( ProcID, Module, Options ),
+    initial_state( ProcID, PrimaryID, Module, Options ),
     server_entry( Starter ).           % Initialize the user-space scheduler.
 
 %% @hidden
 %% @doc Load the internal process state.
-initial_state( ProcID, Module, Opts ) ->
+initial_state( ProcID, PrimaryID, Module, Opts ) ->
     MsgHang = proplists:get_value( message_hang, Opts, ?DEFAULT_MESSAGE_HANG ),
     MsgMax = proplists:get_value( message_buffer, Opts, ?DEFAULT_MESSAGE_BUFFER ),
+    put(?PD_PRIMARYID, PrimaryID),
     put(?PD_LPU_ID,ProcID),
     put(?PD_MSG_HANG, MsgHang),
     put(?PD_MSG_MAX, MsgMax),
@@ -429,35 +418,6 @@ spawn_to_primary( ProcessorID, Fun ) ->
     Msg = {sched_internal, {sched_spawn, Process}, ProcessorID},
     pg:send( ?SCHEDULER_GROUP, Msg ).
 
-
-%% @hidden
-%% @doc Checks the user provided in options to verify they are useful. 
-validate_options( Opts ) -> validate_options( Opts, ?SCHED_OPTS ).
-validate_options( [H|T], Missing ) ->
-    case valid_opt( H, Missing ) of
-        {ok, NM} -> validate_options( T, NM );
-        Err -> Err
-    end;
-validate_options( [], Missing ) ->
-    case filter_optional( Missing ) of [] -> ok; [X|_] -> {missing, X} end.
-valid_opt( X, Xs ) ->
-    Valid = fun( P, S ) -> %% CHECKS IF optname AND size MATCH INCOMING OPTION 
-        case is_tuple(X) of
-            false -> (X =:= P andalso S == 0);
-            true  -> (tuple_size(X) == S andalso element(1,X) == P)
-        end
-    end,
-    Check = fun( {P,S,_} ) -> Valid(P,S); %% RUNS Valid FOR EACH OPTION
-               ( {P,S}   ) -> Valid(P,S)
-            end,
-    case lists:partition( Check, Xs ) of
-        {[],_} -> {badarg, X};
-        {_,NXs} -> {ok, NXs}
-    end.
-filter_optional( L ) ->
-    lists:filter(fun ({_,_,optional}) -> false;
-                     (_) -> true
-                 end, L ).
 
 %% @hidden
 %% @doc Add a message to a particular message queue in the process dictionary.

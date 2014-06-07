@@ -7,6 +7,7 @@
 
 %% Default implementations
 -export( [ layout/3 ] ).
+-export( [ default_parse_opts/1 ] ).
 
 %% Private
 -export( [ required/0 ] ).
@@ -65,15 +66,25 @@
 %%   from their layout/2 function if they want to. 
 %% @end
 layout( Module, Topology, Options ) ->
+    Opts = default_parse_opts( Options ), 
     % Count the number of LPU's on each branch of the Topology. 
     Count = lists:foldl( fun(X,C)-> 
                                  count_logical(X,0)+C 
                          end, 0, Topology ),
     % With the count, generate a list of sched_desc() for each LPU.
     % If LPU is 0, then it will set it as primary.
-    lists:map( fun(N)-> 
-                    {N,Module,option_update(N, Count, Options)} 
-               end, lists:seq(0, Count-1)).
+    Comps = lists:map( fun(N)-> 
+                               {N,Module,Opts} 
+                       end, lists:seq(0, Count-1)),
+    {0, Comps}.
+
+
+%% @doc Parse each option according to: VALUE=ARGUMENT
+%%  where value must be an single 'word' (i.e. no spaces) and the argument must
+%%  be of an erlang type (i.e. a term()).
+%% @end
+default_parse_opts( Options ) ->
+    lists:foldl( fun parse_opt/2, [], Options ).
 
 
 %%% ==========================================================================
@@ -98,11 +109,34 @@ recurse_logic(L,N) when is_list(L) ->
 recurse_logic(X,N) -> count_logical(X,N).
 
 %% @hidden
-%% @doc Update user options in topology generation.
-option_update(N, Max, Options)-> 
-    Update = fun (Tuple, List) ->
-                lists:keystore( element(1,Tuple), 1, List, Tuple )
-             end,
-    DefaultOptions = [{primary,(N==0)}, {processor,N,Max}], 
-    lists:foldl( Update,  Options, DefaultOptions ).
+%% @doc Parse a single option, it scans for the equal sign. If it does not
+%%   exist, it makes sure the value is an atom, at which case it sets its
+%%   'value' to true. If there IS an equal sign, everything to the right is
+%%   converted using Erlang's term evaluation.
+%% @end
+parse_opt( Opt, ListAcc ) ->
+    try
+        Tuple = mk_optarg( Opt ),
+        [Tuple|ListAcc]
+    catch _:_ -> 
+        io:format("ERROR: Could not parse '~s'.~n",[Opt]),
+        halt(1)
+    end.
 
+mk_optarg( Opt ) ->
+    case string:tokens(Opt, "=") of
+        [Name] -> {list_to_atom(Name), true};
+        [Name,Value] -> {list_to_atom(Name),to_term(Value)}
+    end.
+to_term(Value) ->
+    Quoted = quote_if_spaces( Value ) ++ ".",
+    {ok, Ts, _} = erl_scan:string( Quoted ),
+    case erl_parse:parse_term( Ts ) of
+        {ok, Term} -> Term;
+        {error, _} -> throw(error)
+    end.
+quote_if_spaces( V ) ->
+    case lists:member(32, V) of %contains a space.
+        true -> "\""++V++"\"";
+        false -> V
+    end.

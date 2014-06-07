@@ -63,7 +63,7 @@ init( Children ) ->
 %% @doc Generates the CHILD spec for the supervisor API. It determines
 %%   this by going though defaults and 
 generate_children( Options ) ->
-    Module = get_sched_module( Options ),
+    {Module, InitOptions} = get_sched_module( Options ),
     
     % Grab the System Topology to check against what our options are.
     Topology = erlang:system_info( cpu_topology ),
@@ -73,32 +73,19 @@ generate_children( Options ) ->
     % calls for multiple different schedulers, that's fine. (In otherwords, we 
     % are able to have multiple scheduler modules all working on the same 
     % system.) 
-    Layout = erlang:apply( Module, layout, [ Topology, Options ] ),
-    PrimaryID = get_primary( Layout ),
-    Children = layout_to_children( Layout ),
+    {PrimaryID, Layout} = erlang:apply( Module, layout, [ Topology, InitOptions ] ),
+    Children = layout_to_children( PrimaryID, Layout ),
     {PrimaryID, Children}.
-
-%% @hidden
-%% @doc Get the processor ID of the primary scheduler.
-get_primary( [] ) -> 0;
-get_primary( [{_,_,Options}|R] ) ->
-    case lists:keyfind(primary, 1, Options) of
-        {primary, false} -> get_primary( R );
-        {primary, true}  -> 
-            (case lists:keyfind(processor, 1, Options) of
-                 {processor, N, _} -> N;
-                 _ -> exit("Scheduler missing correct processor designation.")
-            end);
-        _ -> exit("Scheduler missing correct primary designation.")
-    end. 
 
 %% @hidden
 %% @doc Based on the Layout returned by the scheduler callback, we create
 %%   the children accordingly.
 %% @end  
-layout_to_children( [] ) -> [];
-layout_to_children( [{ID,Module,Opts}|Rest] ) ->
-    [?CHILD(ID,erlam_sched,worker,[ID,Module,Opts])|layout_to_children(Rest)].
+layout_to_children( _, [] ) -> [];
+layout_to_children( Primary, [{ID,Module,Opts}|Rest] ) ->
+    [ ?CHILD(ID,erlam_sched,worker,[ID,Primary,Module,Opts]) |
+      layout_to_children(Primary,Rest) 
+    ].
     
 %% ------------------------------------------
 %% Option Parsing
@@ -108,5 +95,9 @@ layout_to_children( [{ID,Module,Opts}|Rest] ) ->
 %%   given then it falls back to the default scheduler.
 %% @end   
 get_sched_module( Options ) ->
-    proplists:get_value( scheduler, Options ).
+    {value, {scheduler,Scheduler}, Opts} = 
+                        lists:keytake( scheduler, 1, Options ),
+    {value, {options, InitOpts}, _} = 
+                        lists:keytake( options, 1, Opts ),
+    {Scheduler, InitOpts}.
 

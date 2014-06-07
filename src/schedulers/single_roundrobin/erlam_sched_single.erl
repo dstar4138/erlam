@@ -14,12 +14,14 @@
 
 %% Erlam Scheduler API
 -export([ layout/2, init/1, cleanup/1, tick/2, spawn_process/2 ]).
+-export([ options/0 ]).
 
 -define(MAX_REDUCS, 20). % The num of reductions before moving to the next proc
 -define(inspect(P), io_lib:format("~s",[erlam_trans:ast2pp(P#process.exp)])).
 
 -record( internal_state, {  cur_proc = nil,
                             cur_reduc = 0,
+                            max_reduc = ?MAX_REDUCS,
                             procs = queue:new() } ).
 
 %%% ==========================================================================
@@ -29,18 +31,17 @@
 %% @doc Return the Scheduler topology for this scheduler implementation. This
 %%   uses only Processor0, and will round robit on an internal work queue.
 %% @end
-layout( _CPUTop, _Opts ) ->
+layout( _CPUTop, Options ) ->
     ProcID = 0,                % Bind Scheduler to Processor with ID = 0.
     Module = ?MODULE,          % Use the callbacks in this module for scheduling
-    Opts = [ {primary,true},   % Set this scheduler as primary (for main function)
-             {processor, 0, 1},% Make sure scheduler knows there is only one process
-             {debug, true} ],  % Utilize debug settings, which can be turned off above
-    [ {ProcID, Module, Opts} ].
+    Opts = parse_sched_opts( Options ), % Pull out options passed to scheduler
+    { ProcID,                  % Set this scheduler as primary (for main function)
+       [ {ProcID, Module, Opts} ]}.
 
 %% @doc Initializing the scheduler on the processor is easy as returning default
 %%   state. The state will hold the local work queue and thats it.
 %% @end
-init( _Options ) -> {ok, #internal_state{}}.
+init( Options ) -> get_options( Options, #internal_state{} ).
 
 %% @doc Cleanup is simple too, we ignore unfinised processes in the queue.
 cleanup( _State ) -> ok.
@@ -60,6 +61,32 @@ tick( _Status, #internal_state{ cur_reduc=R }=State ) ->
 spawn_process( Process, #internal_state{procs=P} = State ) ->
     {ok, State#internal_state{procs=queue:in( Process, P )}}.
 
+
+%%% ==========================================================================
+%%% Optional ErLam Scheduler API
+%%% ==========================================================================
+
+%% @private
+%% @doc Returnsthe arguments to pass in to the scheduler as a direct printout.
+options() ->
+    {ok, 
+     "max_reduc - The number of reductions on an expression before pick_next."
+    }.
+
+%% @hidden
+%% @doc Parse the options which are passed to the scheduler. You can use any
+%%   style parameters you want. But the default schedulers use the style 
+%%   described by erlam_scheduler:default_parse_opts/1.
+%% @end
+parse_sched_opts( Options ) ->  erlam_scheduler:default_parse_opts( Options ).    
+
+%% @hidden
+%% @doc After parsing, update init state with user-changes.
+get_options( Options, State ) ->
+    Reducs = proplists:get_value( max_reduc, Options, ?MAX_REDUCS ),
+    {ok, State#internal_state{max_reduc=Reducs}}.
+
+
 %%% ==========================================================================
 %%% Private functionality
 %%% ==========================================================================
@@ -74,7 +101,7 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
         end,
     NewQueue = case C of nil -> Queue; _ -> queue:in(C, Queue) end,
     State#internal_state{ cur_proc = Selection,
-                          cur_reduc = ?MAX_REDUCS,
+                          cur_reduc = get_mr(State),
                           procs = NewQueue }.
 
 %% @hidden
@@ -104,4 +131,8 @@ check_on_stop( Process, State ) ->
         false -> 
             {ok, running, State#internal_state{ cur_proc=nil, cur_reduc=0 }}
     end.
+
+%% @hidden
+%% @doc Utility Function for getting max_reduc from state.
+get_mr( #internal_state{max_reduc=MR} ) -> MR.
 

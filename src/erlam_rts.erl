@@ -313,6 +313,9 @@ parse_options( ["-o",Name|_Rest], _ ) -> list_sched_opts( Name );
 parse_options( ["-s",Name|Rest], {Prev, Opts} ) ->
     {ok, NewSchedOpts} = verify_scheduler( Name, Prev ),
     parse_options( Rest,{NewSchedOpts, Opts} );
+parse_options( ["--"|Rest], {Sched, Opts} ) ->
+    NewSched = lists:keyreplace(options,1,Sched,{options,Rest}),
+    {NewSched, Opts};
 parse_options( [Unknown|_], _ ) ->
     io:format("Unknown runtime option: ~s~n",[Unknown]), 
     halt(1).
@@ -382,7 +385,7 @@ list_sched_opts( SchedName ) ->
             (case erlam_schedulers:get_options( ModName ) of
                  false -> io:format("No Options Avaliable~n"),halt(0);
                  {ok,Opts} -> 
-                     io:format("Scheduler Options:~n~p~n",[Opts]), halt(0)
+                     io:format("Scheduler Options:~n~s~n",[Opts]), halt(0)
              end);
         {error, _} -> 
             io:format("ERROR: Scheduler '~s' does not exist on path.~n",
