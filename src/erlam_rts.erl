@@ -72,19 +72,25 @@ safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
     case ?is_blocked(P) of
         true -> {ok, P};
         false -> (case step( ProcID, F, E ) of
-                      {ok, Next, NE} -> {ok, P#process{exp=Next,env=NE}};
-                      {stop, Val} -> {stop, P#process{exp=Val}};
+                      {ok, Next, NE} ->
+                          erlam_state:inc_reductions(),
+                          {ok, P#process{exp=Next,env=NE}};
                       {hang, Val, -1} ->
                           {yield, P#process{exp=Val}};
                       {hang, Val, Sleep} -> 
+                          erlam_state:inc_reductions(),
                           Hang = {os:timestamp(), Sleep},
                           {hang, P#process{exp=Val,hang=Hang}, Sleep};
                       {hang, Val, NE, -1} ->
                           {yield, P#process{exp=Val,env=NE}};
                       {hang, Val, NE, Sleep} ->
+                          erlam_state:inc_reductions(),
                           Hang = {os:timestamp(), Sleep},
                           {hang, P#process{exp=Val,env=NE,hang=Hang}, Sleep};
-                      {error, Reason} -> {error, Reason}
+                      {stop, Val} -> 
+                          {stop, P#process{exp=Val}};
+                      {error, Reason} -> 
+                          {error, Reason}
                   end)
     end.
 
