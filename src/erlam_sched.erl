@@ -24,7 +24,7 @@
 %PUBLIC 
 -export([return/1]).
 -export([broadcast/1, send/2, check_mq/0]).
--export([get_id/0,is_primary/0]).
+-export([get_id/0,get_ids/0,is_primary/0]).
 
 %PRIVATE
 -export([start_link/4, stop/1, stopall/0]).
@@ -158,6 +158,12 @@ check_mq( N ) ->
 %% @doc Get the calling scheduler's Logical Processor's ID or ProcID.
 get_id() -> get( ?PD_LPU_ID ).
 
+%% @doc Get a list of LPU IDs where scheduler's are bound to.
+get_ids() ->
+    Count = proplists:get_value( active,
+                    supervisor:count_children( erlam_sched_sup )),
+    lists:seq( 0, Count-1 ). %%TODO: Assuming layout is normalized
+
 %% @doc Check if the current ID is equal to the primary id. This will tell us if
 %%   the current LPU has been marked as primary by startup.
 %% @end
@@ -232,7 +238,14 @@ server_entry( Starter ) ->
 %%   initialized. See server_entry/1, init_ack/0 and erlam_sched_sup:startup/1.
 %% @end  
 hang_for_fin_init() ->
-    receive initack -> ok end.
+    receive
+        initack -> ok;
+        {new_member, _, _} -> % Ignore possible messages from pg when in setup
+            hang_for_fin_init();
+        {crashed_member,_,_} -> % Continue to crash
+            io:put_chars("ERROR: Scheduler crashed.\n"),
+            halt(1)
+    end.
 
 %% @hidden
 %% @doc This function will not return until the local process gets a message.
