@@ -38,10 +38,14 @@ dat <- read.csv( filename )
 # Sort the data matrix by the timestamp
 dat <- dat[ order(dat$timestamp), ]
 
+# Set up report document location next to log
+report_name <- paste(filename, "-report.pdf", sep="")
+pdf(file=report_name)
+
 # Get list of charts needed by scraping sub directory.
 for( chartf in list.files("./charts")){ 
     # Load that charts file:
-    source( chartf )
+    source( paste("charts/",chartf,sep="") )
 
     # Get the name of the function:
     chartfun <- sub("\\.R", "", chartf)

@@ -20,8 +20,9 @@ communication_heatmap <- function( dat ) {
                    dat$event=='yield' ), ]
 
     # Construct matrix used for heat map:
-    lpus <- count( test$lpu )$x
-    max_ticks <- max( count( test[test$event=='tick',]$lpu)$freq)
+    lpus <- count( list(test$lpu) )[[1]]
+    freqs <- count( list(test[which(test$event=='tick'),]$lpu))$freq
+    max_ticks <- max( freqs )
     nCols <- ceiling( max_ticks / TICK_RANGE )
     nRows <- length( lpus )
     density_m <- matrix( data=0, 
@@ -30,7 +31,7 @@ communication_heatmap <- function( dat ) {
     # For each lpu, calculate the heat for each tick range
     for(  ii in 1:nRows ) {
         lpu <- ii-1 # zero based LPU count
-        event_stream <- test[ test$lpu == lpu, ]$event
+        event_stream <- test[ which(test$lpu == lpu), ]$event
 
         cur_tick <- 1
         tick_range_sum<-0 ; range_count<-0
@@ -53,18 +54,16 @@ communication_heatmap <- function( dat ) {
         }
     
         if (cur_tick <= nCols ){
-            density_m[ii,cur_tick] <-tick_range_sum
+            density_m[ii,cur_tick] <- tick_range_sum
         }
     }
     
     # Export the plot.
-    density_m <- rescale(density_m, 0:HEAT_MAP_COLOR_MAX, 0:TICK_RANGE, FALSE)
     heatmap( density_m, 
-             Rowv = NA, 
-             Colv = NA,
+             Rowv = NA, Colv = NA,
              col = brewer.pal(HEAT_MAP_COLOR_MAX,"Blues"),
              scale="none",
-             xlab=paste("Communication Density per ",TICK_RANGE," ticks"),
+             xlab=paste("Communication Density per",TICK_RANGE,"Ticks"),
              ylab="Logical Processing Unit",
              main="LPU to Communication Density")
 }
