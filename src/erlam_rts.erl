@@ -56,7 +56,7 @@ safe_spawn( Fun ) -> safe_spawn( Fun, [] ).
 safe_spawn( Fun, ENV ) ->
 %    ?DEBUG("SPAWN: ~p, ~p~n",[Fun, ENV]), 
     case erlam_sched:spawn( Fun, ENV ) of
-        ok         -> erlam_state:inc_processes(),   1;
+        ok         -> erlam_state:note( spawn ),     1;
         {error, E} -> ?DEBUG("Spawn Error: ~p",[E]), 0
     end.
 
@@ -73,18 +73,20 @@ safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
         true -> {ok, P};
         false -> (case step( ProcID, F, E ) of
                       {ok, Next, NE} ->
-                          erlam_state:inc_reductions(),
+                          erlam_state:note( reduction ),
                           {ok, P#process{exp=Next,env=NE}};
                       {hang, Val, -1} ->
+                          erlam_state:note( yield ),
                           {yield, P#process{exp=Val}};
                       {hang, Val, Sleep} -> 
-                          erlam_state:inc_reductions(),
+                          erlam_state:note( reduction ),
                           Hang = {os:timestamp(), Sleep},
                           {hang, P#process{exp=Val,hang=Hang}, Sleep};
                       {hang, Val, NE, -1} ->
+                          erlam_state:note( yield ),
                           {yield, P#process{exp=Val,env=NE}};
                       {hang, Val, NE, Sleep} ->
-                          erlam_state:inc_reductions(),
+                          erlam_state:note( reduction ),
                           Hang = {os:timestamp(), Sleep},
                           {hang, P#process{exp=Val,env=NE,hang=Hang}, Sleep};
                       {stop, Val} -> 
@@ -258,7 +260,7 @@ step_erl( A, F, E, _Env ) ->
     catch 
         throw:{sleep,Time} -> % The function can safely hang by throwing
                               % A custom exception. We will return a special
-                              % Event attached to the 'stop' request.   
+                              % Event attached to the 'stop' request.
             {hang, 1, Time};
         _:_ -> {stop, 0} 
     end.

@@ -18,7 +18,8 @@ listing of each, to see more detail, see their subsequent bundled README.
 * _The Multi-Threaded Round-Robin Work-Stealing Scheduler_ - An improvement on
   the previous scheduler. Instead of a global queue, each scheduler maintains
   their own. A waiting scheduler will randomly sleep-and-steal until it finds 
-  a process to reduce from another scheduler.
+  a process to reduce from another scheduler. The provided implementation gives
+  two example stealing mechanisms for comparison.
 
 * _The Single-Threaded Dual-Queue CML Scheduler_ - Based on the CML's dual-queue
   design, this scheduler breaks up processes into `computation` and 

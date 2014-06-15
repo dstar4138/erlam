@@ -25,6 +25,9 @@
 %% simulating shared state accesses.
 -record(state, { procs = queue:new() }).
 
+%% Using Primary LPU==0 for all logging of global queue size.
+-define(LOG_QUEUE(Len), erlam_state:log(0,queue_length,Len)).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -60,18 +63,22 @@ peekpush_to_queue( Process ) ->
 handle_call( waiting, _From, #state{procs=P}=State ) ->
     case queue:is_empty( P ) of
         true -> %% No waiting processes
+            ?LOG_QUEUE(0),
             {reply, waiting, State};
         false ->
             {{value,Proc}, NP} = queue:out( P ),
+            ?LOG_QUEUE(queue:len(NP)), 
             NewState = State#state{procs=NP},
             {reply, {ok,Proc}, NewState}
     end;
 handle_call( {peekpush, Process}, _From, #state{procs=P}=State ) -> 
     case queue:is_empty( P ) of
         true ->
+            ?LOG_QUEUE(0),
             {reply, {ok, Process}, State};
         false ->
             {{value,Top},NP} = queue:out( P ),
+            ?LOG_QUEUE(queue:len(NP)+1),
             NewState = State#state{procs=queue:in( Process, NP )},
             {reply, {ok, Top}, NewState}
     end. 
@@ -80,6 +87,7 @@ handle_call( {peekpush, Process}, _From, #state{procs=P}=State ) ->
 %%   process spawns, etc.
 %% @end
 handle_cast( {spawn, Process}, #state{procs=P}=State ) ->
+    ?LOG_QUEUE(queue:len(P)+1),
     {noreply, State#state{procs=queue:in(Process, P)}}.
 
 

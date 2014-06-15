@@ -304,6 +304,7 @@ run_init( ) ->
 %% @hidden
 %% @doc Wraps the behaviour call to the implemented scheduler.  
 run_tick( PrevStatus, ImplState ) ->
+    erlam_state:note( tick ),
     case catch
         erlang:apply( get(?PD_BEHAVE), tick, [ PrevStatus, ImplState ] )
     of 

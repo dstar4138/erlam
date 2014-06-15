@@ -1,15 +1,24 @@
-%% 
-%% ErLam Runtime Monitor
-%%
-%%   This module is responsible for keeping track of information about the 
-%%   current state of the system which would be global for the schedulers.
-%%
+%%% 
+%%% ErLam Runtime Monitor
+%%%
+%%%     This module is responsible for keeping track of information about the 
+%%%     current state of the system which would be global for the schedulers.
+%%%     Allows for the logging of miscellaneous timestamped messages in either
+%%%     quantity or frequency based CSV files. A Quantity based log looks like
+%%%     a heatmap in a LPU to time (grouped in a variable size time-range). 
+%%%     This helps to visualize statistics like size of process queue over time.
+%%%     The Frequency based log is a linear distribution plot (Gantt) of type 
+%%%     to time. This helps to visualize statistics like state of the scheduler 
+%%%     over time (i.e. waiting or running).
+%%%
 -module(erlam_state).
 -behaviour(gen_server).
 
+-include("debug.hrl").
+
 %% API
 -export([start/1,stop/0]).
--export([inc_reductions/0, inc_processes/0]).
+-export([note/1,log/2,log/3]).
 
 %% Optimizations
 -compile(inline). % Implicit aggressive inlining to this module.
@@ -22,14 +31,9 @@
          terminate/2,
          code_change/3]).
 
--record(state, {
-            num_reductions = 0, % Number of completed reductions made in total
-            num_processes = 1,  % Default is always 1, unless another is spawn
-            num_schedulers = 0, %TODO: ... 
-            %% Runtime Options
-            verbose = false
-
-         }).
+-record(state, { fd = nil,
+                 verbose = false %% Runtime Options
+               }).
 
 %%%===================================================================
 %%% API
@@ -49,56 +53,42 @@ stop() ->
     catch _:_ -> ok end, % Intential wait for crash of shutdown call.
     ok.
 
-%% @doc Trigger a reduction increment. Does so non-blockingly.
--spec inc_reductions() -> ok.
-inc_reductions() -> gen_server:cast(?MODULE, {update, inc, num_reductions}).
+%% @doc Note that an event happened on the calling LPU. Will not block.
+-spec note( term() ) -> ok.
+note( Event ) -> log( erlam_sched:get_id(), Event ).
 
-%% @doc Trigger a process increment. Does so non-blockingly.
--spec inc_processes() -> ok.
-inc_processes() -> gen_server:cast(?MODULE, {update, inc, num_processes}).
+%% @doc Report that something happened at a particular timestamp. For example
+%%   log(2,reduce) or log(2, spawn) to increment the counts of either reductions
+%%   or spawns. These are useful for keeping track of events in time with others
+%% @end
+log(LPU, Report) -> 
+    gen_server:cast(?MODULE, {log, LPU, Report, os:timestamp()}).
+
+%% @doc Report that not only something happened but the value of it's return, 
+%%   namely if it's something we're measuring like process queue size or number
+%%   of open channels over time.
+%% @end
+log(LPU, Name, CurValue) -> 
+    gen_server:cast(?MODULE, {log, LPU, Name,CurValue, os:timestamp()}).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-%% @private
-%% @doc Initializes the server
-init(Args) -> 
-    State = parse_args( Args ),
-    {ok, State}.
+%% @doc initilize the log file if need be.
+init(Args) -> {ok, parse_args(Args)}.
 
-%% @private
-%% @doc Handling synch call messages
-handle_call(test_conn, _, State) -> 
-    {reply, ok, State};
-handle_call(shutdown, _, State) ->
-    %TODO: Check current state and check if running processes?
-    shutdown_inform( State ),
-    {stop, normal, State};
+%% @doc handle shutdown based on State
+handle_call(shutdown, _, State) -> 
+    shutdown_inform( State ), {stop, normal, State};
 handle_call(_Request, _From, State) -> {reply, ok, State}.
 
-%% @private
-%% @doc Handling async cast messages
-handle_cast({update,By,On}, State) ->
-    NewState = update_state( By, On, State ),
-    {noreply, NewState};
-handle_cast(_Msg, State) -> {noreply, State}.
+%% @doc Handle logging based on state.
+handle_cast(Log, State) -> emit(Log,State), {noreply,State}.
 
-%% @private
-%% @doc Handling all non call/cast messages
+%% Unused callbacks, the following are default implementations.
+terminate(_Reason, _State) -> ok.
 handle_info(_Info, State) -> {noreply, State}.
-
-%% @private
-%% @doc
-%% This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any
-%% necessary cleaning up. When it returns, the gen_server terminates
-%% with Reason. The return value is ignored.
-%% @end
-terminate(_Reason, _State) ->  ok.
-
-%% @private
-%% @doc  Convert process state when code is changed. NOT USED.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %%%===================================================================
@@ -106,45 +96,43 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%%===================================================================
 
 %% @hidden
-%% @doc Inlined, state update based on an operation to a particular variable.
--spec update_state( atom(), atom(), #state{} ) -> #state{}.
-update_state( inc, On, State ) -> % Increment
-    set_val( On, get_val( On, State ) + 1, State );
-update_state( dec, On, State ) -> % Decrement
-    set_val( On, get_val( On, State) - 1, State ).
+%% @doc The Header written to the CSV file for later parsing by R.
+header() -> io_lib:format("timestamp,lpu,event,value~n",[]).
 
 %% @hidden
-%% @doc Inlined, will get the value of a variable in the state object.
--spec get_val( atom(), #state{} ) -> term().
-get_val( num_reductions, #state{num_reductions=N} ) -> N;
-get_val( num_processes,  #state{num_processes=N}  ) -> N;
-get_val( num_schedulers, #state{num_schedulers=N} ) -> N;
-get_val( verbose,        #state{verbose=V}        ) -> V.
-
-%% @hidden
-%% @doc Inlined, will update state based on the variable needing set.
--spec set_val( atom(), term(), #state{} ) -> #state{}.
-set_val( num_reductions, V, S ) -> S#state{num_reductions=V};
-set_val( num_processes,  V, S ) -> S#state{num_processes=V};
-set_val( num_schedulers, V, S ) -> S#state{num_schedulers=V};
-set_val( verbose,        V, S ) -> S#state{verbose=V}.
+%% @doc Append a log entry into a file. 
+emit(_, #state{verbose=false}) -> ok; %Skip if we aren't logging.
+emit({log, LPU, Name, {_,S,M}}, #state{fd=F}) ->
+   file:write(F,io_lib:format("~6..0B.~6..0B,~p,~p,\"\"~n",[S,M,LPU,Name])); 
+emit({log, LPU, Name, Val, {_,S,M}}, #state{fd=F}) ->
+   file:write(F,io_lib:format("~6..0B.~6..0B,~p,~p,~p~n",[S,M,LPU,Name,Val])). 
 
 %% @hidden
 %% @doc Based on options, can be turned on to be verbose runtime output.
-shutdown_inform( State ) ->
-    case get_val( verbose, State ) of
-        true ->
-            io:format( "Num Total Reductions: ~p~n" ++
-                       "Num Total Processes: ~p~n"  ++
-                       "",[ get_val(num_reductions, State),
-                            get_val(num_processes, State) ] );
-        false -> ok
-    end.
+shutdown_inform( #state{fd=nil} ) -> ok;
+shutdown_inform( #state{fd=F} )   -> file:close( F ).
 
 %% @hidden
 %% @doc Generates the Monitor's state based on runtime options.
 parse_args( Args ) ->
-   Default = #state{},
-   Verbosity = orddict:fetch( verbose, Args ),
-   set_val( verbose, Verbosity, Default ).
+    Verb = orddict:fetch( verbose, Args ),
+    #state{ fd = load_file( Verb, Args ),
+            verbose = Verb}.
+
+load_file( false, _ ) -> nil;
+load_file( _, Args ) ->
+    Name = makeName( Args ),
+    case file:open( Name, [append] ) of
+        {ok, FD} ->
+            ok = file:write( FD, header() ),
+            FD;
+        {error, Reason} ->
+            io:format("ERROR (~p): Could not create log file: ~p~n",
+                      [Reason, Name]),
+            halt(1)
+    end.
+
+makeName( _Args ) -> 
+    {ok, CWD} = file:get_cwd(),
+    CWD++"/test.erlamlog". %TODO: get name from args
 
