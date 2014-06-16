@@ -27,6 +27,14 @@
                   max_reduc = ?MAX_REDUCS
                 } ).
 
+%% Since this scheduler is single-core only, we can use the LPU label to 
+%% visualize the two ready queues. We push the secondary queue onto the 
+%% second LPU just for visualization purposes.
+-define(LOG_LenQ1( Q ), erlam_state:log(0,queue_length,queue:len(Q))).
+-define(LOG_LenQ2( Q ), erlam_state:log(1,queue_length,queue:len(Q))).
+-define(LOGQ( State ), ?LOG_LenQ1( State#state.rdyQ1 ), 
+                       ?LOG_LenQ2( State#state.rdyQ2 ) ).
+
 %%% ==========================================================================
 %%% Erlam Scheduler Public API
 %%% ==========================================================================
@@ -98,6 +106,7 @@ get_options( Options, State ) ->
 %% @end
 -spec pick_next( #state{} ) -> {ok, #state{}}.
 pick_next( State ) ->
+    ?LOGQ( State ),
     {ok, NewState} = preempt( State ),      % Place current thread onto queue
     {ok, Top, Next} = dequeue1( NewState ), % Pop next off
     setCurThread( Top, Next ).              % Set it as current and return state
@@ -193,6 +202,7 @@ enqueueAndSwitchCurThread( Process, #state{curThread=T}=State ) ->
             setCurThread( Process, State );
         _   ->
             {ok, NewState} = enqueue1( T, State ), % New process takes over
+            ?LOGQ( NewState ),
             setCurThread( Process, NewState )
     end.
 

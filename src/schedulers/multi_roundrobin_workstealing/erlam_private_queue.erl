@@ -23,6 +23,8 @@
          terminate/2,
          code_change/3]).
 
+-define(LOG_QUEUE(LPU,Len),erlam_state:log(LPU,queue_length,Len)).
+
 -define(WORK_STEALING_QUEUES, wsqs).
 -record( state, { lpuid=nil, rdyq = queue:new() } ).
 
@@ -71,19 +73,23 @@ init( [ ProcID ] ) ->
 %% @doc Handle all blocking requests from schedulers. This would include
 %%  pushing and poping processes from the queue.
 %% @end
-handle_call( pop, _From, #state{rdyq=Q}=State ) ->
+handle_call( pop, _From, #state{rdyq=Q,lpuid=LPU}=State ) ->
     case queue:out( Q ) of
         {{value, Proc}, Q2} ->
+            ?LOG_QUEUE(LPU,queue:len(Q2)),
             {reply, {ok, Proc}, State#state{rdyq=Q2}};
         {empty, _} ->
+            ?LOG_QUEUE(LPU,0),
             {reply, false, State}
     end;
-handle_call( {pushpop, Process}, _From, #state{rdyq=Q}=State ) ->
+handle_call( {pushpop, Process}, _From, #state{rdyq=Q,lpuid=LPU}=State ) ->
     case queue:out( Q ) of
         {{value, Proc}, Q2} ->
             NewQueue = case Process of nil -> Q2; _ -> queue:in(Process,Q2) end, 
+            ?LOG_QUEUE(LPU, queue:len(NewQueue)),
             {reply, {ok, Proc}, State#state{rdyq=NewQueue}};
         {empty, _} ->
+            ?LOG_QUEUE(LPU,0),
             (case Process of
                 nil -> {reply, false, State};
                 _   -> {reply, {ok, Process}, State}
@@ -92,7 +98,8 @@ handle_call( {pushpop, Process}, _From, #state{rdyq=Q}=State ) ->
 handle_call( _Msg, _From, State ) -> {reply, ok, State}.
 
 %% @doc Pushing can be handled asynchronously.
-handle_cast( {push, Process}, #state{rdyq=Q}=State ) ->
+handle_cast( {push, Process}, #state{rdyq=Q,lpuid=LPU}=State ) ->
+    ?LOG_QUEUE(LPU,queue:len(Q)+1),
     {noreply, State#state{rdyq=queue:in(Process,Q)}};
 handle_cast( _Msg, State ) -> {noreply, State}.
 
@@ -103,10 +110,12 @@ handle_info( {pg_message, _, ?WORK_STEALING_QUEUES, {steal, LPUID, From}},
              #state{lpuid=MyLPU, rdyq=Q} = State ) ->
     case MyLPU == LPUID of
         true -> (case queue:out_r( Q ) of % 
-                     {{value, V}, Q2} -> 
+                     {{value, V}, Q2} ->
+                         ?LOG_QUEUE(MyLPU, queue:len(Q2)), 
                          From!{ok, V},
                          {noreply, State#state{rdyq=Q2}};
                      {empty,_} ->
+                         ?LOG_QUEUE(MyLPU, 0),
                          From!false,
                          {noreply, State}
                  end);

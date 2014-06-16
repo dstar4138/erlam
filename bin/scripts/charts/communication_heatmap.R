@@ -58,13 +58,24 @@ communication_heatmap <- function( dat ) {
         }
     }
     
-    # Export the plot.
-    heatmap( density_m, 
-             Rowv = NA, Colv = NA,
+    # Export the plot. (Use image(...) if only a single LPU)
+    if (nRows==1) {
+      density_m <- t(density_m) # transpose so its LPU/Density
+      
+      image( density_m,
              col = brewer.pal(HEAT_MAP_COLOR_MAX,"Blues"),
-             scale="none",
+             xaxt='n',yaxt='n',mgp=c(0,1,0),
              xlab=paste("Communication Density per",TICK_RANGE,"Ticks"),
-             ylab="Logical Processing Unit",
+             ylab="Logical Processing Unit\n1",
              main="LPU to Communication Density")
+    } else {
+      heatmap( density_m, 
+               Rowv = NA, Colv = NA,
+               col = brewer.pal(HEAT_MAP_COLOR_MAX,"Blues"),
+               scale="none",
+               xlab=paste("Communication Density per",TICK_RANGE,"Ticks"),
+               ylab="Logical Processing Unit",
+               main="LPU to Communication Density")
+    }
 }
 

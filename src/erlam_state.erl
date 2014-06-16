@@ -122,6 +122,8 @@ parse_args( Args ) ->
 load_file( false, _ ) -> nil;
 load_file( _, Args ) ->
     Name = makeName( Args ),
+    io:format("VERBOSE: Logs will be pushed to: ~s~n",[Name]),
+    remove_if_exists( Name ),
     case file:open( Name, [append] ) of
         {ok, FD} ->
             ok = file:write( FD, header() ),
@@ -132,7 +134,15 @@ load_file( _, Args ) ->
             halt(1)
     end.
 
-makeName( _Args ) -> 
+%% @hidden
+%% @doc Generates the log's filename given the scheduler and program name.
+makeName( Args ) ->
+    SchedulerName = proplists:get_value(scheduler, Args, default),
+    ProgName = escript:script_name(),
+    ScriptName = filename:rootname(filename:basename(ProgName)),
     {ok, CWD} = file:get_cwd(),
-    CWD++"/test.erlamlog". %TODO: get name from args
+    lists:flatten(io_lib:format("~s/~s-~s.log",[CWD,ScriptName,SchedulerName])).
 
+%% @hidden
+%% @doc Deletes a file if it exists and ignores the error if there is one.
+remove_if_exists( Name ) -> catch file:delete( Name ).

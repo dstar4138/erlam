@@ -19,6 +19,9 @@ queue_length_linechart <- function( dat ) {
     # Filter by 'queue_length'
     test <- dat[ which( dat$event=='queue_length' ), ]
 
+    # If no queue_length reports, ignore further processing
+    if( dim(test)[1] == 0 ) return()
+
     # Get information about the number of process queue's we'll be graphing
     tmp <- count( list(test$lpu) )
     lpus <- tmp[[1]]

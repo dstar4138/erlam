@@ -33,7 +33,7 @@ setup( RTSOptions, Expression ) ->
     %% Start the Channel server, will handle swapping and channel creation.
     erlam_chan_serve:start(),
     %% Start the Runtime Monitor, useful for global information gathering.
-    erlam_state:start( StateOpts ),
+    erlam_state:start( SchedOpts++StateOpts ),
     %% Intitialize the Schedulers and send the initial expression.
     erlam_sched:run( SchedOpts, Expression ).
 
