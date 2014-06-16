@@ -33,6 +33,11 @@
 -define(DEFAULT_MESSAGE_HANG,    1). % Default is break after waiting a second.
 -define(DEFAULT_MESSAGE_BUFFER, -1). % Default is get everything
 
+%% State logging happens after every tick and after startup. We assume that
+%% the scheduler implementer kept to the standard status see:
+%% include/erlam_scheduler.hrl for details. 
+-define(LOG_STATE( Status ), erlam_state:log(get_id(), sched_state, Status)).
+
 %%% ==========================================================================
 %%% Public API
 %%% ==========================================================================
@@ -226,6 +231,7 @@ server_entry( Starter ) ->
             proc_lib:init_ack( Starter, {ok, self()} ),
             hang_for_fin_init(),
             put(?PD_STATUS, running),
+            ?LOG_STATE(startup),
             server_loop( startup, ImplState );
         {stop, Reason} -> 
             % Bad initialization, return error
@@ -266,9 +272,12 @@ hang_for_result() ->
 %% @end  
 server_loop( PrevStatus, ImplState ) ->
     case internal_handle_msgs( ImplState ) of
-        {stop, Updated1} -> server_stop( Updated1 );
+        {stop, Updated1} -> 
+            ?LOG_STATE(stopped),
+            server_stop( Updated1 );
         {ok, Updated1} ->
             {NextStatus, Updated2} = run_tick( PrevStatus, Updated1 ),
+            ?LOG_STATE( NextStatus ),
             decide_future( NextStatus, Updated2 )
     end.
 

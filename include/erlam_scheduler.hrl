@@ -38,5 +38,5 @@
 
 -type scheduler_opts() :: list( scheduler_opt() ).
 
--type scheduler_status() :: 'WAITING' | 'RUNNING' | 'BLOCKED'.
+-type scheduler_status() :: startup | waiting | running | stopped.
 
