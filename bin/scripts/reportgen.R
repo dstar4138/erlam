@@ -55,7 +55,7 @@ for( chartf in list.files("./charts")){
 
         # Get the function and run it with the sorted data matrix:
         tmp <- get( chartfun )
-        tmp( dat )
+        try( tmp( dat ) )
     }
 }
 

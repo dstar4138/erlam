@@ -29,7 +29,7 @@ queue_length_linechart <- function( dat ) {
 
     # Construct the plot for the line chart
     xrange <- range(rescale(test$timestamp))
-    yrange <- range(test$value)
+    yrange <- range(list(test$value))
     plot(xrange,yrange,
          xlab="Time", ylab="Process Queue Length", main="Max Queue Size")
     
