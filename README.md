@@ -69,7 +69,7 @@ of some descriptive charts:
     Res: 55
     $ ./bin/reportgen pfib-erlam_sched_global.log
 
-The report generator uses the R to perform the analysis and chart generation.
+The report generator uses the R language to perform analysis and chart gen.
 You will need the `ggplot2`, `reshape2`, and `RColorBrewer` packages to take 
 advantage of the report generator. Note adding `--png` to the `reportgen` call
 will generate PNG's instead of a PDF (you can also export jpegs, bmps, and 
@@ -128,7 +128,7 @@ built-in `spawn` function and the std-library's `merge` use this approach.
 #### Report Generation for Fibonacci
 
 The example parallel Fibonacci program above has been copied down into the 
-examples directory so that the following example can be performed verbatim.
+`examples` directory so that the following example can be performed verbatim.
 For this example we would like to generate a PDF report for our multi-core
 work-stealing scheduler for a single execution of pfib.els (our above code).
 
