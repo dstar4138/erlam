@@ -43,32 +43,37 @@ To use ErLam, you will need the Erlang VM installed. This is the only
 dependency (apart from possibly git, so you can download this repository). To 
 build Erlam, just run:
     
-    make
+    $ make
 
 Then to test it:
 
-    make test
+    $ make test
 
 If all tests return normal, then you can compile some of the example's by 
 running:
 
-    make examples
+    $ make examples
 
 Since ErLam compiles to Erlang's EScript by default, if on linux you can simply
 run an example (e.g. fibonacci) like so:
 
-    ./examples/fib.ex
+    $ ./examples/fib.ex
 
 To check out some Runtime information about the program, append the `-v` option
-when running it. This will print out the number of spawned processes and the
-number of reductions performed on all threads:
+when running it. This will build an event log to the current directory. You can
+then optionally run the report generator which will generate (by default) a PDF
+of some descriptive charts:
 
-    ./examples/pfib.ex -v
-    Num Total Reductions: 2206
-    Num Total Processes: 177
+    $ ./examples/pfib.ex -v
+    VERBOSE: Logs will be pushed to: pfib-erlam_sched_global.log
     Res: 55
+    $ ./bin/reportgen pfib-erlam_sched_global.log
 
-More runtime options to come.
+The report generator uses the R to perform the analysis and chart generation.
+You will need the `ggplot2`, `reshape2`, and `RColorBrewer` packages to take 
+advantage of the report generator. Note adding `--png` to the `reportgen` call
+will generate PNG's instead of a PDF (you can also export jpegs, bmps, and 
+tiffs).
 
 ### Examples
 
@@ -119,32 +124,27 @@ Note we start the first process as soon as we get it and will spawn it off until
 we hit the merge point. We also point out that a 'process' is a closure and a
 unit-function which will be passed `nil` to bootstrap it's evaluation. Both the
 built-in `spawn` function and the std-library's `merge` use this approach.
-       
 
-#### Example program: Ping-Pong Servers
+#### Report Generation for Fibonacci
 
-Another common example is a ping-pong server, where a client and server pass
-a message back and forth. Note that ErLam uses swap channels so we force mutual
-exclusion:
+The example parallel Fibonacci program above has been copied down into the 
+examples directory so that the following example can be performed verbatim.
+For this example we would like to generate a PDF report for our multi-core
+work-stealing scheduler for a single execution of pfib.els (our above code).
 
-    fun n.(
-        let c = newchan in
-        let server = (fun _.(omega fun s. 
-                                    let r = (swap c nil) in
-                                     (if (eq r nil) 
-                                         (print ~1) 
-                                         (ignore (print r) (s nil))))) in
-        let worker = fun t.(omega (fun w,x.
-                            (if (leq x 0)
-                                (swap c nil) 
-                                (ignore (swap c x) (w w (dec x))))) t)
-        in (ignore (spawn server) (worker n)))
-    100
+    $ ./bin/els ./example/pfib.els
+    Compiling: +to_escript
+    Successful save of: ./examples/pfib.ex
+    $ ./example/pfib.ex -v -s erlam_sched_multi_ws -- shared_queue
+    VERBOSE: Logs will be pushed to: .../pfib-erlam_sched_multi_ws.log
+    Res: 55
 
-This will run a worker which will communicate with the spawned server 100 times 
-before closing the channel. The example can be modified to wait a random number 
-of seconds before sending back a message (as in the `examples` directory).
+Note here we ran the compiled `pfib.ex` script in verbose mode using the 
+scheduler implementation `erlam_sched_multi_ws`, with the option `schared_queue`
+turned on. This told the work-stealing scheduler to allow other schedulers to 
+have direct access to their neighbor's queues. We can now generate a report
+using the exported log:
 
-Note that the `omega` function is the shorthand for the application function 
-used in the Fibonacci example: `fun x.(x x)`.
+    $ ./bin/reportgen pfib-erlam_sched_multi_ws.log
 
+You can see the exported charts in `./bin/charts/example`
