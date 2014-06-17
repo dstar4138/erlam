@@ -17,7 +17,8 @@ queue_length_linechart <- function( dat ) {
     REPORT_RANGE <- 2*HEAT_MAP_COLOR_MAX # Thus max "heat" is 18, min is 0
     
     # Filter by 'queue_length'
-    test <- dat[ which( dat$event=='queue_length' ), ]
+    valid_events <- c('queue_length')
+    test <- dat[ dat$event %in% valid_events, ]
 
     # If no queue_length reports, ignore further processing
     if( dim(test)[1] == 0 ) return()
@@ -29,7 +30,7 @@ queue_length_linechart <- function( dat ) {
 
     # Construct the plot for the line chart
     xrange <- range(rescale(test$timestamp))
-    yrange <- range(list(test$value))
+    yrange <- range(as.integer(as.vector(test$value)))
     plot(xrange,yrange,
          xlab="Time", ylab="Process Queue Length", main="Max Queue Size")
     
@@ -41,7 +42,8 @@ queue_length_linechart <- function( dat ) {
     # Finally for each lpu, add a line to the plot
     for( i in 1:nLines ) {
         lpu <- test[ which(test$lpu == lpus[i]), ]
-        lines(rescale(lpu$timestamp), lpu$value, type="l", lwd=1.5,
+        lines(rescale(lpu$timestamp), as.integer(as.vector(lpu$value)),
+              type="l", lwd=1.5,
               lty=linetype[i], col=colors[i], pch=plotchar[i]) 
     }
     
