@@ -25,8 +25,7 @@
                    max_reduc = ?MAX_REDUCS,
                    procs = nil,
                    tick_fun = nil,
-                   waiting = false,
-                   lpus = [] 
+                   waiting = false
                 } ).
 
 %%% ==========================================================================
@@ -98,15 +97,16 @@ options() ->
 %% @hidden
 %% @doc After parsing, update init state with user-changes.
 make_state( Options ) ->
+    {A,B,C} = erlang:now(), random:seed(A,B,C),
     MaxReducs = proplists:get_value( max_reduc, Options, ?MAX_REDUCS ),
     {ok, QueueID} = erlam_private_queue:start_link(),
     case proplists:get_value( shared_queue, Options, false ) of
-        true -> % We chose to use a personal shared queue:
+        true -> % We chose to use a personal, but shared queue:
             TickFun = fun tick_shared_queue/2,
             {ok, #state{tick_fun=TickFun,
                         procs=QueueID, 
                         max_reduc=MaxReducs}};
-        false ->
+        false -> % We chose to use theif process emulation:
             TickFun = fun tick_interrupt_steal/2,
             {ok, #state{tick_fun=TickFun,
                         procs=QueueID,
@@ -168,8 +168,9 @@ pick_new_sq( #state{cur_proc=Current, procs=Queue} = State ) ->
 %%   their private queue directly. (We steal from the bottom of the queue).
 %% @end
 steal_process_sq( State ) ->
+    MyID = erlam_sched:get_id(),
     IDs = erlam_sched:get_ids(),
-    LPUID = pick_random_lpu( IDs ),
+    LPUID = pick_random_lpu( MyID, IDs ),
     case erlam_private_queue:steal( LPUID ) of
         {ok, Process} -> {ok, running, resetCur( Process, State )};
         false -> {ok, waiting, State}
@@ -177,17 +178,21 @@ steal_process_sq( State ) ->
 
 %% @hidden
 %% @doc Randomly pick a LPU ID from the list of IDs
-pick_random_lpu( [] ) -> 0;
-pick_random_lpu( ListOfIDs ) ->
-    lists:nth(random:uniform(length( ListOfIDs )),ListOfIDs).
+pick_random_lpu( _, [] ) -> 0;
+pick_random_lpu( M, ListOfIDs ) ->
+    R = lists:nth(random:uniform(length(ListOfIDs)), ListOfIDs),
+    case R == M of
+        false -> R; 
+        true -> pick_random_lpu( M, ListOfIDs )
+    end.
 
 %% @hidden
 %% @doc Check for a theif process, if it exists, then run it first. Then
-%%  look at private queue to update our current process.
+%%  look at private queue to update our current process, however ignore it
+%%  if we currently have nothing to do.
 %% @end
-pick_new_is( State ) ->
-    NewState = check_for_theif( State ),
-    pick_new_sq( NewState ).
+pick_new_is( #state{cur_proc=nil} = State ) -> pick_new_sq( State );
+pick_new_is( State ) -> check_for_theif( State ), pick_new_sq( State ).
 
 %% @hidden
 %% @doc Stealing a process comes in two steps. First if not waiting send a 
@@ -195,11 +200,9 @@ pick_new_is( State ) ->
 %%   response from LPU when they hit the theif thread.
 %% @end
 steal_process_is( #state{ waiting=true } = State ) ->
-    case erlam_sched:check_mq() of
-        false -> 
-            {ok, waiting, State};
+    case erlam_sched:check_mq( true ) of %hang until return
         {ok, {steal, LPU}} ->
-            erlam_sched:send( LPU, {steal, nil} ),
+            erlam_sched:send( LPU, {spawn, nil} ),
             {ok, waiting, State};
         {ok, {spawn, nil}} ->
             NewState = State#state{waiting=false}, 
@@ -209,9 +212,9 @@ steal_process_is( #state{ waiting=true } = State ) ->
             {ok, running, resetCur( Process, NewState )};
         _Other -> {ok, waiting, State}
     end;
-steal_process_is( #state{lpus=LPUs} = State ) ->
+steal_process_is( State ) ->
     MyID = erlam_sched:get_id(),
-    LPUID = pick_random_lpu( LPUs ),
+    LPUID = pick_random_lpu( MyID, erlam_sched:get_ids() ),
     erlam_sched:send( LPUID, {steal, MyID}),
     {ok, waiting, State#state{waiting=true}}.
 
@@ -222,21 +225,16 @@ steal_process_is( #state{lpus=LPUs} = State ) ->
 %% @end
 check_for_theif( State ) ->
     case erlam_sched:check_mq() of
-        false -> % ignore
-            State;
-        {ok, {spawn, nil}} -> % ignore
-            State;
+        false -> ok; % ignore
+        {ok, {spawn, nil}} -> ok; % ignore
         {ok, {spawn, Process}} -> % add process to queue 
-            ok = erlam_private_queue:push( Process, State#state.procs ),
-            State;
+            ok = erlam_private_queue:push( Process, State#state.procs );
         {ok, {steal, LPU}} -> % return a process to LPU
             (case erlam_private_queue:pop( State#state.procs ) of
                  false ->
-                     erlam_sched:send( LPU, {spawn, nil} ),
-                     State;
+                     erlam_sched:send( LPU, {spawn, nil} );
                  {ok, Top} ->
-                     erlam_sched:send( LPU, {spawn, Top} ),
-                     State
+                     erlam_sched:send( LPU, {spawn, Top} )
             end);
         Other -> ?DEBUG("Other: ~p~n",[Other])
     end.

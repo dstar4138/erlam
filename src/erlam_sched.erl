@@ -23,14 +23,14 @@
 
 %PUBLIC 
 -export([return/1]).
--export([broadcast/1, send/2, check_mq/0]).
+-export([broadcast/1, send/2, check_mq/0, check_mq/1]).
 -export([get_id/0,get_ids/0,is_primary/0]).
 
 %PRIVATE
 -export([start_link/4, stop/1, stopall/0]).
 -export([init/5, init_ack/0]).
 
--define(DEFAULT_MESSAGE_HANG,    1). % Default is break after waiting a second.
+-define(DEFAULT_MESSAGE_HANG,    0). % Default is break immediately if nothing.
 -define(DEFAULT_MESSAGE_BUFFER, -1). % Default is get everything
 
 %% State logging happens after every tick and after startup. We assume that
@@ -141,24 +141,49 @@ send( ProcID, Message ) ->
 %% @doc Check the local message queue (other side of send/2). Note that the
 %%   only time this will valid is during a schedmodule:step/2 call.
 %% @end 
-check_mq() -> check_mq( get( ?PD_MSG_MAX ) ).
-check_mq( 0 ) -> false;
-check_mq( N ) ->
+check_mq() -> check_mq( get( ?PD_MSG_MAX ), false ).
+check_mq( ForceHang ) -> check_mq( get(?PD_MSG_MAX), ForceHang ).
+check_mq( N, ForceHang ) ->
+    case get( ?PD_SMQ ) of
+        [] -> check_mq_loop( N, ForceHang );
+        [H|T] -> 
+           put( ?PD_SMQ, T ), 
+           {ok, H}
+    end.
+check_mq_loop( 0, false ) -> false;
+check_mq_loop( N, ForceHang ) ->
     ProcID = get( ?PD_LPU_ID ), 
     Hang = get( ?PD_MSG_HANG ),
     receive 
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,ProcID,M}} -> 
             {ok, M};
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,_,_}} -> %Other LPU
-             check_mq( N-1 );
+             check_mq_loop( N-1, ForceHang );
         {pg_message, _from, ?SCHEDULER_GROUP, {sched_msg,M}} ->
             {ok, M};
+        
+        %%% INTERNAL MESSAGING, BUFFER/DISCARD AND CONTINUE %%%
         {crashed_member,?SCHEDULER_GROUP,_Pid} -> % We'll die too shortly.
-            check_mq( N-1 );
-        Unknown ->    
+            check_mq_loop( N-1, ForceHang );
+        {new_member,?SCHEDULER_GROUP,_Pid} -> 
+            check_mq_loop( N-1, ForceHang );
+        {pg_message, _, _, {sched_internal, Message}} ->
+            buffer(?PD_TMQ, Message),
+            check_mq_loop( N-1, ForceHang );
+        {pg_message, _, _, {sched_internal, Message, ProcID}} ->
+            buffer(?PD_TMQ, Message),
+            check_mq_loop( N-1, ForceHang );
+        {pg_message, _, _, {sched_internal, _, _}} ->
+            check_mq_loop( N-1, ForceHang );
+        Unknown ->
             buffer(?PD_TMQ, Unknown),  % We would like to return timely, ignore 
-            check_mq( N - 1 )          % internals until after tick.
-    after Hang -> false end.   
+            check_mq_loop( N-1, ForceHang ) % internals until after tick.
+    after 
+        Hang -> (case ForceHang of 
+                     false -> false; 
+                     true -> check_mq( N, true ) 
+                 end)
+    end.
 
 %% @doc Get the calling scheduler's Logical Processor's ID or ProcID.
 get_id() -> get( ?PD_LPU_ID ).
@@ -371,21 +396,30 @@ internal_handle_msgs( ImplState ) ->
     handle_internal_queue( ImplState, Queue ).
 flush_tmq( Queue, ProcID ) ->
     receive
-%        MSG -> ?DEBUG("RECV MSG ON ~p: ~p~n",[ProcID, MSG]), case MSG of %XXX
         {pg_message, _, _, {sched_internal, Msg}} -> 
                         flush_tmq([Msg|Queue], ProcID);
         {pg_message, _, _, {sched_internal, Msg, ProcID}} -> 
                         flush_tmq([Msg|Queue], ProcID);
         {pg_message, _, _, {sched_internal, _, _}} -> % No match on ProcID 
                         flush_tmq( Queue, ProcID );
-        {crashed_member,?SCHEDULER_GROUP,_Pid} -> % We'll die too shortly.
+        {crashed_member,_Group,_Pid} -> % We'll die too shortly.
+                        flush_tmq( Queue, ProcID );
+        {new_member,_Group,_Pid} -> 
                         flush_tmq( Queue, ProcID );
         {sched_spawn, _}=Msg  -> 
                         flush_tmq([Msg|Queue], ProcID);
-        Other -> 
-                 buffer(?PD_SMQ, Other),
-                 flush_tmq(Queue, ProcID)
-%        end%XXX: REMOVE ME
+
+        %%% SCHEDULER MESSAGES, SO WE BUFFER IN MEMORY %%%
+        {pg_message, _, _, {sched_msg, Msg}} -> % Scheduler message broadcast.
+                        buffer(?PD_SMQ, Msg ),
+                        flush_tmq( Queue, ProcID );
+        {pg_message, _, _, {sched_msg, ProcID, Msg}} -> % Send msg to us
+                        buffer( ?PD_SMQ, Msg ),
+                        flush_tmq( Queue, ProcID );
+        {pg_message, _, _, {sched_msg, _, _}} -> % Scheduler message not for us
+                        flush_tmq( Queue, ProcID );
+        _Other ->    
+                        flush_tmq(Queue, ProcID)
     after 0 -> Queue end.
 handle_internal_queue( ImplState, [] ) -> {ok, ImplState};
 handle_internal_queue( ImplState, [H|R] ) ->

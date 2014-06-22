@@ -16,7 +16,8 @@
 list() ->
     [ {erlam_sched_single, "Single-core Round-Robin Scheduler"},
       {erlam_sched_global, "Multi-core Round-Robin Shared-Queue Scheduler"},
-      {erlam_sched_single_cml, "Single-core Dual-Queue Scheduler"}
+      {erlam_sched_single_cml, "Single-core Dual-Queue Scheduler"},
+      {erlam_sched_multi_ws, "Multi-core Work-Stealing Round-Robin Scheduler"}
     ].
 
 %% @doc Verify and check if the given scheduler name is an actual scheduler.
