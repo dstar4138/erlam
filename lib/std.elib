@@ -19,6 +19,8 @@ elib
 
     // Pair, Tuples and Lists
     pair = fun x,y,f.(f x y);
+    head = fun p.(p fst);
+    tail = fun p.(p snd);
     newlist = fun f.(f false false);
     cons = fun x,l.(pair x l);
     is_empty = fun l.(is_num (tail l));

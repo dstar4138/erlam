@@ -6,10 +6,11 @@
 
 fun n.(
     let c = newchan in
+        let chug = fun n.(rep n id nil) in
         let server = (fun _.(omega fun s. 
                                     let r = (swap c nil)  in
                                     let dead = (eq r nil) in
-                                    let _ = if dead false (ignore (hang 1) (swap c r))
+                                    let _ = if dead false (ignore (chug 40) (swap c r))
                                     in (if dead (printl ~1) (ignore (printl r) (s s)))))
         in let worker = fun t.
                 (omega (fun w,x.(if (leq x 0)
