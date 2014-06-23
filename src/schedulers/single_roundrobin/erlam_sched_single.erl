@@ -106,18 +106,23 @@ pick_next( #internal_state{ cur_proc=C, procs=P } = State ) ->
 
 %% @hidden
 %% @doc Perform a reduction.
-reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=_Ps } = State ) ->
+reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=Ps } = State ) ->
     case erlam_rts:safe_step(P) of
         {ok,NP} -> {ok, running, State#internal_state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
         {stop,NP} -> check_on_stop( NP, State );
-        {yield, NP} -> 
-            {ok, running, State#internal_state{cur_proc=NP, cur_reduc=0}};
-        {hang, NP, Sleep} -> 
+        {blocked, BlockedProcs} -> 
+            {ok, waiting, State#internal_state{cur_proc=nil, 
+                                               cur_reduc=0, 
+                                               procs=insert(BlockedProcs, Ps)}};
+        {unblocked, Unblocked} -> 
+            {ok, waiting, State#internal_state{cur_proc=nil,
+                                               cur_reduc=0,
+                                               procs=insert(Unblocked, Ps)}};
+        {hang, NP} -> 
         %% We are sleeping, so hang (stop the world style), and set reductions
         %% to zero (ignoring what they were before). Will push the process to
         %% the end of the queue.
-            timer:sleep( Sleep ),
             {ok, running, State#internal_state{ cur_proc=NP, cur_reduc=0 }};
         {error, Reason} -> exit( Reason ) % Won't handle errors
     end.
@@ -136,3 +141,7 @@ check_on_stop( Process, State ) ->
 %% @doc Utility Function for getting max_reduc from state.
 get_mr( #internal_state{max_reduc=MR} ) -> MR.
 
+%% @hidden
+%% @doc Insert a list of items into a queue.
+insert( [], Q ) -> Q;
+insert( [H|T], Q ) -> insert( T, queue:in(H,Q) ).

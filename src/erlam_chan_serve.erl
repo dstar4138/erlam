@@ -9,7 +9,7 @@
 -include("erlam_chan.hrl").
 
 %% API
--export([start/0, stop/0, get_new_chan/0]).
+-export([start/0, start/1, stop/0, get_new_chan/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -19,13 +19,25 @@
          terminate/2,
          code_change/3]).
 
+%% Default Channel Module Implementation is blocking, but absorption can be
+%%  toggled on using a runtime flag.
+-define(DEFAULT_CHAN, erlam_chan_block).
+-define(ABSORB_CHAN, erlam_chan_absorb).
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 %% @doc Starts the server.
 -spec start() -> ok.
-start() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []), ok.
+start() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [?DEFAULT_CHAN], []), ok.
+
+%% @doc Starts the server.
+-spec start( orddict:orddict() ) -> ok.
+start( Options ) -> 
+    ChannelModule = get_channel_module( Options ),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [ChannelModule], []), 
+    ok.
 
 %% @doc Stops the server and all swap channels safely.
 -spec stop() -> ok.
@@ -40,17 +52,18 @@ get_new_chan() -> gen_server:call(?MODULE, get_new_chan).
 %%%===================================================================
 
 %% Internal State
--record(state,{curid :: integer(), open_chans :: dict()}).
+-record(state,{curid :: integer(), open_chans :: dict(), mod :: atom()}).
 
 %% @private
 %% @doc Initializes the server
-init([]) -> {ok, #state{curid=0, open_chans=dict:new()}}.
+init([Mod]) -> 
+    {ok, #state{curid=0, open_chans=dict:new(), mod=Mod}}.
 
 %% @private
 %% @doc Handling synch call messages
-handle_call(get_new_chan, _From, S=#state{curid=I}) ->
-    {CPID, NS} = build_handler( S ),
-    {reply, #chan{id=I,cpid=CPID}, NS};
+handle_call(get_new_chan, _From, S) ->
+    {NewChan, NS} = build_handler( S ),
+    {reply, NewChan, NS};
 handle_call(Request, _From, State) ->
     ?ERROR("Channel","Unknown Call: ~p",[Request]), 
     {reply, ok, State}.
@@ -90,12 +103,14 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%   process. It then adds this instance to the dictionary of open 
 %%   channels for later cleanup and possibly validity checking.
 %% @end  
-build_handler( #state{ curid=I, open_chans=M } = S ) ->
-    case erlam_chan:start_link( I ) of
-        {ok, CPID} ->
+build_handler( #state{ curid=I, open_chans=M, mod=Mod } = S ) ->
+    NewChan = #chan{ id=I, mod=Mod },
+    case erlam_chan:start_link( NewChan ) of
+        {ok, BuiltChan} ->
+            CPID = BuiltChan#chan.cpid,
             NM = dict:store( I, CPID, M ),
             NewState = S#state{ curid=I+1, open_chans=NM },
-            {CPID, NewState};
+            {BuiltChan, NewState};
         Error ->
             ?ERROR("Channel","Error building channel: ~p",[Error])
     end.
@@ -107,4 +122,13 @@ kill_channels( #state{ open_chans=Open } ) ->
     dict:map( fun(_ID, CPID) ->
                       gen_server:cast( CPID, shutdown )
               end, Open ).
+
+
+%% @hidden
+%% @doc Check to see if the absorption flag has been toggled
+get_channel_module( OrdDict ) ->
+    case orddict:find( absorption, OrdDict ) of
+        {ok, true} -> ?ABSORB_CHAN;
+         _ -> ?DEFAULT_CHAN
+    end.
 

@@ -18,6 +18,15 @@
    exp    :: term(),
    env=[] :: [{atom(),term()}],
 
+   %% Channel Value, used only when channel-absorption is enabled by the
+   %% runtime option. Thus, when a process gets returned, it can access the
+   %% value it was swapped with, without spending a reduction.
+   chan_val = nil :: term(),
+
+   %% The current continuation which represents the outer expression waiting
+   %% for the current 'exp' to finish. 
+   cont = [] :: [ fun() ],
+
    %% Hangtime and initial timestamp. When a process randomly asks to be
    %% rescheduled at a later time. Note the 'hangtime' is thus a suggested
    %% minimum (unless the particular scheduler implementation makes an extra
@@ -44,3 +53,4 @@
 -define(get_hangfortime(P),element(2,P#process.hang)).
 
 -type erlam_process() :: #process{}.
+-type erlam_env() :: [{atom(),term()}].

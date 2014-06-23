@@ -120,8 +120,11 @@ reduce( #state{ curThread=T, curReduct=R } = State ) ->
             {ok, running, State#state{ curThread=NP, curReduct=R-1 }};
         {stop,NP} -> % We are stopping, check if it's a primary process
             check_on_stop( NP, State );
-        {yield, NP} -> % Communicating, so mark and swap processes.
-            {ok, NewState} = yield( NP, State ),
+        {blocked, NPs} -> % Communicating, so mark and swap processes.
+            {ok, NewState} = yield( NPs, State ),
+            {ok, running, NewState};
+        {unblocked, NPs} -> 
+             {ok, NewState} = yield( NPs, State ),
             {ok, running, NewState};
         {hang, NP, Sleep} ->
         %% We are sleeping, so hang (stop the world style), and set reductions
@@ -146,13 +149,16 @@ check_on_stop( Process, State ) ->
 %% @private
 %% @doc We have caused a yield by touching a channel. We have no atomic sections
 %%   in ErLam so just mark the thread and enqueue it, then dequeue and set it
-%%   as the current thread.
+%%   as the current thread. Note we may get more than one process back after
+%%   an unblock, which means we should mark both before dequeue-ing.
 %% @end
 -spec yield( #process{}, #state{} ) -> {ok, #state{}}.
-yield( Proc, State ) ->
+yield( [], State ) ->
+    {ok, Top, Next} = dequeue1( State ), %should always be valid due to enq.
+    setCurThread( Top, Next );
+yield( [Proc|Rest], State ) ->
     {ok, NewState} = markAndEnqueue( Proc, State ),
-    {ok, Top, Next} = dequeue1( NewState ), %should always be valid due to enq.
-    setCurThread( Top, Next ).
+    yield( Rest, NewState ).
 
 %% @private
 %% @doc Push current thread to end of queue and promote a process if need be.

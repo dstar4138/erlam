@@ -100,11 +100,14 @@ reduce( #state{ cur_proc=P, cur_reduc=R } = State ) ->
     case erlam_rts:safe_step( P ) of
         {ok, NP} -> {ok, running, State#state{cur_proc=NP, cur_reduc=R-1}};
         {stop,NP} -> check_on_stop( NP, State );
-        {yield, NP} -> %% We are swaping, so ask for a new proc, in meantime.
-            {ok, running, State#state{ cur_proc=NP, cur_reduc=0}};
-        {hang, NP, Sleep} -> 
-            timer:sleep( Sleep ), % Halt the world style sleep!
-            {ok, running, State#state{ cur_proc=NP, cur_reduc=R-1 }};
+        {blocked, NPs} -> %% We are swaping, so ask for a new proc, in meantime.
+            ok = insert(NPs),
+            {ok, waiting, State#state{ cur_proc=nil, cur_reduc=0}};
+        {unblocked, [H|T]} ->
+            ok = insert( T ),
+            {ok, running, State#state{ cur_proc=H, cur_reduc=R-1 }};
+        {hang, NP} -> %Ignore, but reschedule 
+            {ok, running, State#state{ cur_proc=NP, cur_reduc=0 }};
         {error, Reason} -> exit( Reason )
     end.
 
@@ -139,3 +142,12 @@ get_mr( #state{max_reduc=MR} ) -> MR.
 find_or_make_mq( false ) -> ok; % Not Primary, so just return.
 find_or_make_mq( true )  -> % Primary, so start and link to queue.
     {ok, _} = erlam_sched_global_queue:start_link(), ok.
+
+%% @hidden
+%% @doc Insert a set of processes into the global queue.
+insert( [] ) -> ok;
+insert( [Process|Rest] ) -> 
+    ok = erlam_sched_global_queue:spawn_to_queue( Process ),
+    insert( Rest ).
+
+

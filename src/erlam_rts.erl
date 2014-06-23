@@ -31,7 +31,7 @@
 setup( RTSOptions, Expression ) ->
     {SchedOpts, StateOpts} = parse_options( RTSOptions ),
     %% Start the Channel server, will handle swapping and channel creation.
-    erlam_chan_serve:start(),
+    erlam_chan_serve:start( StateOpts ),
     %% Start the Runtime Monitor, useful for global information gathering.
     erlam_state:start( SchedOpts++StateOpts ),
     %% Intitialize the Schedulers and send the initial expression.
@@ -60,40 +60,21 @@ safe_spawn( Fun, ENV ) ->
         {error, E} -> ?DEBUG("Spawn Error: ~p",[E]), 0
     end.
 
-%% @doc Safely step a process and keep the local environment up to date.
-%%   Errors are propagated back up to the scheduler for handling.
--spec safe_step( erlam_process() ) -> {ok, erlam_process()} 
-                                    | {yield, erlam_process()}
-                                    | {stop, erlam_process()}
-                                    | {hang, erlam_process(), non_neg_integer()}
-                                    | {error, Reason :: any()}.
-safe_step( #process{ exp=F, env=E, proc_id=ProcID} = P ) ->
+%% @doc Safely step a process and log all reductions and yields.  
+-spec safe_step( erlam_process() ) ->
+      {ok, erlam_process()}          % On successful step
+    | {stop, erlam_process()}        % When step returns value
+    | {blocked, [erlam_process()]}   % When swap returns blocked
+    | {unblocked, [erlam_process()]} % When swap returns successful
+    | {hang, erlam_process()}        % When process asks for reschedule
+    | {error, any()}.                % On unsuccessful step, error not handled
+safe_step( #process{ exp=F, env=E } = P ) ->
 %    ?DEBUG("STEPPING: ~p~n",[F]),
-    case ?is_blocked(P) of
-        true -> {ok, P};
-        false -> (case step( ProcID, F, E ) of
-                      {ok, Next, NE} ->
-                          erlam_state:note( reduction ),
-                          {ok, P#process{exp=Next,env=NE}};
-                      {hang, Val, -1} ->
-                          erlam_state:note( yield ),
-                          {yield, P#process{exp=Val}};
-                      {hang, Val, Sleep} -> 
-                          erlam_state:note( reduction ),
-                          Hang = {os:timestamp(), Sleep},
-                          {hang, P#process{exp=Val,hang=Hang}, Sleep};
-                      {hang, Val, NE, -1} ->
-                          erlam_state:note( yield ),
-                          {yield, P#process{exp=Val,env=NE}};
-                      {hang, Val, NE, Sleep} ->
-                          erlam_state:note( reduction ),
-                          Hang = {os:timestamp(), Sleep},
-                          {hang, P#process{exp=Val,env=NE,hang=Hang}, Sleep};
-                      {stop, Val} -> 
-                          {stop, P#process{exp=Val}};
-                      {error, Reason} -> 
-                          {error, Reason}
-                  end)
+    case step( P, F, E ) of
+        {ok,_}=Ret -> erlam_state:note( reduction ), Ret;
+        {blocked,_}=Ret -> erlam_state:note( yield ), Ret;
+        {unblocked,_}=Ret -> erlam_state:note( yield ), Ret;
+        Ret -> Ret
     end.
 
 %% @doc Put the process to sleep in the scheduler for at least X seconds.
@@ -106,140 +87,173 @@ safe_hang( X ) ->
 %%% Private functionality
 %%%===================================================================
 
+%% @hidden
+%% @doc Update a process with either a new expression or a both an expression
+%%   and an environment.
+%% @end  
+push_proc( P, Exp ) -> P#process{exp=Exp}.
+push_proc( P, Exp, Env ) -> P#process{exp=Exp,env=Env}.
+
+%% @hidden
+%% @doc For each continuation in the list, unwrap it by calling it with the
+%%   given process (which will return an updated one). After we're finished
+%%   set the process continuation set to empty.
+%% @end
+unwrap_cont( [], Proc ) -> Proc#process{cont=[]};
+unwrap_cont( [C|R], Proc ) -> unwrap_cont( R, C(Proc) ).
+
+%% @hidden
+%% @doc Install a continuation into the given process.
+install_cont( Cont, #process{cont=Cs}=P ) ->
+    P#process{cont=[Cont|Cs]}.
+
 %% @private
 %% @doc Evaluate a single step of the erlam process. This is also utilized
 %%   by the interpreter via a loop. This is really gross, so I only wanted to
 %%   do it once.
 %% @end
--spec step( reference(), erlam_exp(), [tuple()] ) ->
-    {ok, erlam_exp(), [tuple()]} 
-    | {halt, erlam_exp(), integer()} % Returns when the result of the step causes a sleep or block (hang/swap)
-    | {stop, erlam_exp()} % Returns when the expression is a value, and can't be stepped further.
-    | {error, any()}. % Returned only when there is a catasrophic error.
-step( _, newchan, _ENV ) ->
-    ChannelID = erlam_chan_serve:get_new_chan(),
-    {stop, erlam_lang:new_chan( ChannelID )};
-step( _, #erlam_erl{} = E, _ENV ) -> {stop, E};
-step( _, #erlam_fun{} = F, _ENV ) -> {stop, F};
-step( _, #erlam_chan{} = C, _ENV ) -> {stop, C};
-step( _, N, _ENV ) when is_integer( N ) -> {stop, N};
+-spec step( erlam_process(), erlam_exp(), erlam_env() ) ->
+      {ok, erlam_process()}          % On successful step
+    | {stop, erlam_process()}        % When step returns value
+    | {blocked, [erlam_process()]}   % When swap returns blocked
+    | {unblocked, [erlam_process()]} % When swap returns successful
+    | {hang, erlam_process()}        % When process asks for reschedule
+    | {error, any()}.                % On unsuccessful step, error not handled
+step( P, Exp, Env ) ->
+    case interstep( P, Exp, Env ) of
+        {ok,#process{cont=Cs}=NP} -> 
+            {ok,unwrap_cont(Cs,NP)};
+        {hang,#process{cont=Cs}=NP} -> 
+            {hang,unwrap_cont(Cs,NP)};
+        {blocked,ProcList} ->
+            {blocked, ProcList};
+        {unblocked,ProcList} ->
+            NewProcList = lists:foldl( fun( #process{cont=Cs}=NP, A ) ->
+                                              [unwrap_cont(Cs,NP)|A]
+                                       end, [], ProcList ), 
+            {unblocked, lists:reverse(NewProcList)};
+        {stop, #process{cont=[]}=NP} -> {stop, NP};
+        {stop, #process{cont=Cs}=NP} -> {ok, unwrap_cont(Cs, NP)};
+        {error, Error} -> {error, Error}
+    end.
 
-step( _, #erlam_var{name=N}, ENV ) ->
+%% @hidden
+%% @doc Runs individual steps and unwraps the expression into continuations in
+%%   the event a subexpression needs evaluation first. Continuations are saved
+%%   in the process so that if they disappear (such as in a swap), they can be
+%%   unwrapped at a later time.
+%% @end
+interstep( P, newchan, _ENV )       -> {stop, gen_channel(P)};
+interstep( P, #erlam_erl{}, _ENV )  -> {stop, P};
+interstep( P, #erlam_fun{}, _ENV )  -> {stop, P};
+interstep( P, #erlam_chan{}, _ENV ) -> {stop, P};
+interstep( P, N, _ENV ) when is_integer( N ) -> {stop, P};
+
+interstep( P, #erlam_var{name=N}, ENV ) ->
     case lists:keyfind(N,1,ENV) of
-        {N,V} -> {stop, V};
+        {N,V} -> {stop, push_proc(P,V)};
         false -> {error, badvar} 
     end;
-step( ProcID, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
+interstep( P, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
     case is_value( E1 ) of
-        {true, 0} -> {ok, E3, ENV};
-        {true, _} -> {ok, E2, ENV};
-        false -> 
-            (case interstep( ProcID, E1, ENV ) of
-                {ok,NV,NENV}    -> {ok, IF#erlam_if{exp=NV}, NENV};
-                {hang,NV,Sleep} -> {hang, IF#erlam_if{exp=NV}, Sleep};
-                {hang,NV,NENV,Sleep} -> 
-                     {hang, IF#erlam_if{exp=NV}, NENV, Sleep}
-            end)
-    end;
-step( ProcID, #erlam_swap{chan=C,val=E}=Swap, ENV ) ->
+        {true, 0} -> {ok, push_proc(P,E3)};
+        {true, _} -> {ok, push_proc(P,E2)};
+        false ->
+            Continuation = fun( NP ) ->
+                    NV = NP#process.exp,
+                    NP#process{exp=IF#erlam_if{exp=NV}}
+            end,
+            interstep( install_cont(Continuation, P), E1, ENV )
+     end;
+interstep( P, #erlam_swap{chan=C, val=E}=Swap, ENV ) ->
     case is_value( C ) of
         {true, #erlam_chan{chan=Chan}} -> 
             (case is_value( E ) of
-                 {true, _} -> 
-                     (case erlam_chan:swap( Chan, E, ProcID ) of
-                          blocked -> {hang, Swap, -1};
-                          Val     -> {hang, Val, ENV, -1}
-                      end);
+                 {true, _} ->
+                     Continuation=fun(NP)->
+                            case NP#process.chan_val of
+                                nil -> NP;
+                                Val -> NP#process{exp=Val,chan_val=nil}
+                            end
+                     end,
+                     % Only install continuation if process hasn't been blocked.
+                     NP = (case ?is_blocked(P) of 
+                               true -> P;
+                               false-> install_cont(Continuation,P) 
+                           end),
+                     erlam_chan:swap( Chan, E, NP );
                  false -> 
-                     (case interstep( ProcID,  E, ENV ) of
-                          {ok,NV,NENV}    -> {ok, Swap#erlam_swap{val=NV}, NENV};
-                          {hang,NV,Sleep} -> {hang, Swap#erlam_swap{val=NV}, Sleep};
-                          {hang,NV,NENV,Sleep} -> 
-                                {hang, Swap#erlam_swap{val=NV}, NENV, Sleep}
-                      end)
+                     Continuation = fun (NP) ->
+                            NV = NP#process.exp,
+                            NP#process{exp=Swap#erlam_swap{val=NV}}
+                     end,
+                     interstep( install_cont(Continuation, P), E, ENV )
              end);
         {true, Unknown} -> 
             {error, {badchan, Unknown}};
         false ->
-            (case interstep( ProcID, C, ENV ) of
-                 {ok,NV,NENV}    -> {ok, Swap#erlam_swap{chan=NV}, NENV};
-                 {hang,NV,Sleep} -> {hang, Swap#erlam_swap{chan=NV}, Sleep};
-                 {hang,NV,NENV,Sleep} -> 
-                     {hang, Swap#erlam_swap{chan=NV}, NENV, Sleep}
-            end)
+            Continuation = fun(NP) ->
+                NV = NP#process.exp,
+                NP#process{exp=Swap#erlam_swap{chan=NV}}
+            end,
+            interstep( install_cont(Continuation, P), C, ENV )
     end;
-step( ProcID, #erlam_spawn{exp=E}=Spawn, ENV ) ->
+interstep( P, #erlam_spawn{exp=E}=Spawn, ENV ) ->
     case is_value( E ) of
         {true, #erlam_fun{}} ->
             %% Valid Spawn of a function to another process. We keep to 
             %% semantics and will turn this expression into an application with
             %% nil. Which kickstarts the evaluation into the function.
-            AppFun = #erlam_app{ exp1=E, exp2=0},
-            {stop, erlam_rts:safe_spawn( AppFun, ENV )};
+            AppFun = #erlam_app{ exp1=E, exp2=0 },
+            Val = erlam_rts:safe_spawn( AppFun, ENV ),
+            {stop, push_proc(P, Val)};
         {true, _} ->   % We fake that the error happened in the other thread,
-            {stop, 0}; %  because spawn errors out if it's not a unit-function.
+                       %  because spawn errors out if it's not a unit-function.
+            {stop, push_proc(P, 0)}; 
         false -> 
-            (case interstep( ProcID, E, ENV ) of
-                {ok,NV,NENV}    -> {ok, Spawn#erlam_spawn{exp=NV}, NENV};
-                {hang,NV,Sleep} -> {hang, Spawn#erlam_spawn{exp=NV}, Sleep};
-                {hang, NV, NENV, Sleep} ->
-                              {hang, Spawn#erlam_spawn{exp=NV}, NENV, Sleep}
-            end)
+            Continuation = fun( NP ) ->
+                NV = NP#process.exp,
+                NP#process{exp=Spawn#erlam_spawn{exp=NV}}
+            end,
+            interstep( install_cont(Continuation,P), E, ENV)
     end;
-step( ProcID, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
+interstep( P, #erlam_app{exp1=E1, exp2=E2}=App, ENV ) ->
     case is_value( E1 ) of
         {true, #erlam_fun{var=V,exp=E}} -> 
             (case is_value( E2 ) of
                  {true, _} ->
                      (case V of
-                         nil_var -> {ok, E, ENV};
+                         nil_var -> {ok, push_proc(P,E)};
                          _ -> 
                             VarName = V#erlam_var.name,
                             {NewName, NewE} = check_and_clean(VarName, E, ENV),
-                            {ok, NewE, [{NewName,E2}|ENV]}
+                            {ok, push_proc(P,NewE, [{NewName,E2}|ENV])}
                       end);
-                 false -> 
-                     (case interstep( ProcID, E2, ENV ) of
-                         {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep};
-                         {hang, NV, NENV, Sleep} ->
-                              {hang, App#erlam_app{exp2=NV}, NENV, Sleep}
-                     end)
+                 false ->
+                    Continuation = fun( NP ) ->
+                        NV = NP#process.exp,
+                        NP#process{exp=App#erlam_app{exp2=NV}}
+                    end,
+                    interstep( install_cont(Continuation,P), E2, ENV )
              end);
         {true, #erlam_erl{arity=A,func=F}} ->
             (case is_value(E2) of
                  {true, _} ->
-                     step_erl( A, F, E2, ENV ); 
+                     step_erl( P, A, F, E2, ENV ); 
                  false ->
-                     (case interstep( ProcID, E2, ENV ) of
-                         {ok, NV, NENV}    -> {ok, App#erlam_app{exp2=NV}, NENV};
-                         {hang, NV, Sleep} -> {hang, App#erlam_app{exp2=NV}, Sleep};
-                         {hang, NV, NENV, Sleep} ->
-                              {hang, App#erlam_app{exp2=NV}, NENV, Sleep}
-
-                     end)
+                    Continuation = fun( NP ) ->
+                        NV = NP#process.exp,
+                        NP#process{exp=App#erlam_app{exp2=NV}}
+                    end,
+                    interstep( install_cont(Continuation,P), E2, ENV )
              end);
         {true, _} -> {error, badapp};
-        false -> 
-            (case interstep( ProcID, E1, ENV ) of
-                 {ok, NV, NENV}    -> {ok, App#erlam_app{exp1=NV}, NENV};
-                 {hang, NV, Sleep} -> {hang, App#erlam_app{exp1=NV}, Sleep};
-                 {hang, NV, NENV, Sleep} ->
-                    {hang, App#erlam_app{exp1=NV}, NENV, Sleep}
-            end)
-    end.
-
-%% @hidden
-%% @doc Inter-step stepping. Assumes the next step is correct and possibly
-%%   produces a value or new environment.
-%% @end
-interstep( ProcID, E, ENV ) ->
-    case step( ProcID, E, ENV ) of
-        {ok, NE}       -> {ok, NE, ENV};
-        {ok, NE, NENV} -> {ok, NE, NENV};
-        {stop, V}      -> {ok, V, ENV};
-        {hang, V, Sleep} -> {hang,V,Sleep};
-        {hang, V, NENV, Sleep} -> {hang, V, NENV, Sleep}
+        false ->
+            Continuation = fun( NP ) -> 
+                 NV = NP#process.exp,
+                 NP#process{exp=App#erlam_app{exp1=NV}}
+            end,
+            interstep( install_cont(Continuation,P), E1, ENV )
     end.
 
 %% @hidden
@@ -247,22 +261,27 @@ interstep( ProcID, E, ENV ) ->
 %%   it. If the Arity is non-1 then it will repackage it into an erlam_erl
 %%   for reapplication to the next value.
 %% @end
-step_erl( A, F, E, _Env ) ->
+step_erl( P, A, F, E, _Env ) ->
     try 
         Res = F(E), % Run the Function on the Expression.
         case A of
             1 -> 
                 (case erlam_lang:is_value( Res ) of
-                     true -> {stop, Res} % Assert it is a valid Built-In. 
+                     % Assert it is a valid Built-In. 
+                     true -> {stop, push_proc(P, Res)} 
                  end);
-            _ -> {stop, erlam_lang:new_erl( A-1, Res )}
+            _ -> 
+                Val = erlam_lang:new_erl( A-1, Res ),
+                {stop, push_proc(P, Val)}
         end
     catch 
         throw:{sleep,Time} -> % The function can safely hang by throwing
                               % A custom exception. We will return a special
                               % Event attached to the 'stop' request.
-            {hang, 1, Time};
-        _:_ -> {stop, 0} 
+            Hang = {os:timestamp(), Time},
+            NP = push_proc(P, 1),
+            {hang, NP#process{hang=Hang}};
+        _:_ -> {stop, push_proc(P,0)} 
     end.
 
 %% @hidden
@@ -308,12 +327,24 @@ rand_atom( V ) -> list_to_atom(atom_to_list(V)++"@").
 %%%===================================================================
 
 %% @hidden
+%% @doc Generates an Erlam_channel by calling the channel server and
+%%   requesting a new channel be created. It then wraps it in a ErLam
+%%   term for comparisons/equality checks.
+%% @end
+gen_channel(P) ->
+    ChannelID = erlam_chan_serve:get_new_chan(),
+    push_proc(P, erlam_lang:new_chan( ChannelID )).
+
+%% @hidden
 %% @doc Parse the command line options passed into the compiled program.
 parse_options( Opts ) -> parse_options( Opts, ?DEFAULT_RTS ).
 parse_options( [], RTS ) -> RTS;
 parse_options( ["-?"|_Rest], _ ) -> usage(), halt(0);
 parse_options( ["-h"|_Rest], _ ) -> usage(), halt(0);
 parse_options( ["-l"|_Rest], _ ) -> list_scheds(), halt(0); 
+parse_options( ["-a"|Rest], {Sched, Opts} ) ->
+    UpOpts = orddict:store(absorption,true,Opts),
+    parse_options( Rest, {Sched, UpOpts} );
 parse_options( ["-v"|Rest], {Sched, Opts} ) ->
     UpOpts = orddict:store(verbose, true, Opts),
     parse_options( Rest, {Sched, UpOpts}  );
@@ -336,6 +367,7 @@ usage() ->
         "usage: "++EXEC++" [options] -- [scheduler_options]\n"++
         "Options:\n" ++
         "  -? | -h \t This help message.\n" ++
+        "  -a\t\t Turn on channel absorption.\n" ++
         "  -v\t\t Turn on verbose runtime message.\n" ++
         "  -l\t\t List all possible schedulers and a short description.\n" ++
         "  -s SCHED \t Select a scheduler to run the program with.\n"++

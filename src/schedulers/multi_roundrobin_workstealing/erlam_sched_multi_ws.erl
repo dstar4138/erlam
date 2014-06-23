@@ -119,18 +119,18 @@ make_state( Options ) ->
 
 %% @hidden
 %% @doc Perform a reduction.
-reduce( #state{ cur_proc=P, cur_reduc=R, procs=_Ps } = State ) ->
+reduce( #state{ cur_proc=P, cur_reduc=R, procs=Ps } = State ) ->
     case erlam_rts:safe_step(P) of
         {ok,NP} -> {ok, running, State#state{ cur_proc=NP,
                                                          cur_reduc=R-1 }}; 
         {stop,NP} -> check_on_stop( NP, State );
-        {yield, NP} ->
-            {ok, running, State#state{cur_proc=NP, cur_reduc=0}};
-        {hang, NP, Sleep} -> 
-        %% We are sleeping, so hang (stop the world style), and set reductions
-        %% to zero (ignoring what they were before). Will push the process to
-        %% the end of the queue.
-            timer:sleep( Sleep ),
+        {blocked, NPs} -> %% We are swaping, so ask for a new proc, in meantime.
+            ok = insert( NPs, Ps ),
+            {ok, running, State#state{ cur_proc=nil, cur_reduc=0}};
+        {unblocked, [H|T]} ->
+            ok = insert( T, Ps ),
+            {ok, running, State#state{ cur_proc=H, cur_reduc=R-1 }};
+        {hang, NP} -> %Ignore
             {ok, running, State#state{ cur_proc=NP, cur_reduc=0 }};
         {error, Reason} -> exit( Reason ) % Won't handle errors
     end.
@@ -144,6 +144,13 @@ check_on_stop( Process, State ) ->
         false -> 
             {ok, running, State#state{ cur_proc=nil, cur_reduc=0 }}
     end.
+
+%% @hidden
+%% @doc Insert a set of processes into the local queue.
+insert( [], _ ) -> ok;
+insert( [H|T], P ) -> 
+    ok = erlam_private_queue:push( H, P ),
+    insert(T, P).
 
 %% @hidden
 %% @doc Reset a current process and the number of reductions based on user

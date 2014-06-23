@@ -131,7 +131,8 @@ trim( A ) -> re:replace( A, "(^\\s+)|(\\s+$)", "", [global,{return,list}] ).
 %%   enviroment.
 %% @end
 stepall( AST ) -> 
-    case stepall( make_ref(), AST, [] ) of
+    Proc = ?new_process(AST, []),
+    case stepall( Proc, AST, [] ) of
         {ok, Val} -> Val;
         {error,Reason} ->
             io:format("ERROR: ~p~n",[Reason]),
@@ -139,13 +140,34 @@ stepall( AST ) ->
     end.
 stepall( ProcID, AST, ENV ) ->
     check_msgs(),
-    case erlam_rts:step( ProcID, AST, ENV ) of
-        {ok, NAST, NENV} -> stepall( ProcID, NAST, NENV );
-        {stop, Val} -> {ok, Val};
-        {hang, Val, Sleep} -> % Instead of stopping, just hang and continue.
+    Step = erlam_rts:step( ProcID, AST, ENV ),
+%    io:format("Stepping(~p): ~s~n",[self(),erlam_trans:ast2pp(AST)]),
+    case Step of
+        {ok, NP} -> 
+            NAST = NP#process.exp,
+            NENV = NP#process.env,
+            stepall( NP, NAST, NENV );
+        {stop, NP} -> 
+            Val = NP#process.exp,
+            {ok, Val};
+        {hang, NP} -> % Instead of stopping, just hang and continue.
+            {_,Sleep}= NP#process.hang,
+            Val = NP#process.exp,
             timer:sleep( Sleep ),
-            stepall( ProcID, Val, ENV ); 
-        {error, Reason} -> {error, Reason}
+            stepall( NP, Val, ENV );
+        {blocked, []} ->
+            {error, blocked};
+        {blocked, [NP]} -> 
+            NAST = NP#process.exp,
+            NENV = NP#process.env,
+            stepall( NP, NAST, NENV );
+        {unblocked,[P|NP]} ->
+            ok = lists:foreach(fun(OP) -> basic_spawn(OP) end, NP),
+            NAST = P#process.exp,
+            NENV = P#process.env,
+            stepall( P, NAST, NENV );
+        {error, Reason} -> 
+            {error, Reason}
     end.
 
 %% @hidden
@@ -165,6 +187,6 @@ check_msgs() ->
 %%   turn it into a basic Erlang process and let the Erlang scheduler take 
 %%   care of it.
 %% @end
-basic_spawn( #process{ exp = E, env=Env, proc_id=ProcID } ) ->
-   erlang:spawn( fun() -> stepall(ProcID, E, Env) end ).
+basic_spawn( #process{ exp = E, env=Env }=P ) ->
+   erlang:spawn( fun() -> stepall(P, E, Env) end ).
 
