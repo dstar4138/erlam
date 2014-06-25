@@ -27,9 +27,27 @@ listing of each, to see more detail, see their subsequent bundled README.
   the system.
 
 * _The Multi-Threaded Dual-Queue CML Scheduler_ - Based on the previous, but
-  adds a work-stealing element to it (see MTRRWS above).
+  adds a work-stealing element to it (see MTRRWS above). However, this one has
+  no basis in current scheduler designs and is thus being ignored for the time
+  being.
 
+The following are the set of cooperativity aware schedulers. Each use a
+different mechanic so comparisons can be made. Note all are multi-threaded
+unless stated otherwise:
 
-More scheduler's will obviously follow, but it is my intention to build off of
-this set of schedulers.
+* _Longevity-Based Batching Scheduler_ - Attempts to recognize whether processes
+  are long-running processes or short-running and by doing so, aid in the
+  batching of short-running processes which may communicate with one another.
+
+* _Bipartite Graph Aided Queue Shuffling Scheduler_ - Instead of using a
+  mechanic to maintain close coupling over time, this scheduler uses the idea
+  of program phases. When it guesses the application has started a phase shift
+  it will attempt to reorder the process queue to be more efficient.
+
+* _Channel-Pinning Scheduler_ - Working in an opposite direction, this
+  scheduler tries forcing processes not to compute swaps unless they are
+  first sent to the appropriate core. Every time a new channel is created it
+  is automatically pinned to the next least used core. Stealing in this
+  scheduler is more creative as it prefers stealing processes which have
+  previously communicated with a preferred channel.
 
