@@ -37,6 +37,12 @@
 % number of unique processes a channel sees could be the max batch size).
 -define(BATCH_SIZE_MAX, 20). 
 
+% It may be useful to run through the batch multiple times before asking for a
+% new one. The batch replay constant multiplies with the number of processes
+% currently in the queue to produce the number of 'rounds' to run before giving
+% up the batch.
+-define(BATCH_REPLAY, 1).
+
 %% Process inspection operations:
 -include("process.hrl").
 
@@ -54,6 +60,8 @@
 % Current Scheduler Configuration. 
  procs = nil, % Reference to personal Queue-of-Queues.
  max_reduc = ?MAX_REDUCS, % User defined max reductions per process execution.
+ batch_replay = ?BATCH_REPLAY, % User defined constant to find the round count.
+ max_batch = ?BATCH_SIZE_MAX, % User defined max batch size.
  tick_fun = nil, % Reference to tick function based on work-stealing choice.
  waiting = false % Whether we are currently in thief mode.
 }).
@@ -108,7 +116,7 @@ spawn_process( Process, #state{cur_proc=nil, loading_dock=OldBatch}=State ) ->
     %% or in start up mode, or has an empty batch due to process absorption. 
     %% We reset the old batch with this new process.
     NewBatch = case OldBatch of nil -> queue:new(); _ -> OldBatch end,
-    Rounds = (queue:len(NewBatch)+1)*2,
+    Rounds = (queue:len(NewBatch)+1)*State#state.batch_replay,
     {ok, State#state{ cur_proc = Process,
                       cur_reduc = State#state.max_reduc,
                       grading=false,
@@ -125,10 +133,10 @@ spawn_process( Process, #state{ cur_proc=C, cur_reduc=R, max_reduc=MR,
             end,
     %% Then decide whether we are at our max loading dock size.
     {NewBatch,NewRounds} = 
-            case queue:len( Batch ) > ?BATCH_SIZE_MAX of
+            case queue:len( Batch ) > State#state.max_batch of
                 true ->
                     erlam_private_queue:push(Batch,State#state.procs),
-                    {queue:new(), 2};
+                    {queue:new(), State#state.batch_replay};
                 false -> {Batch, Rounds+1}
             end,
     %% Finally update our state based on our decisions.
@@ -172,8 +180,10 @@ tick_interrupt_steal( running, #state{cur_reduc=_} = S ) -> reduce( S ).
 options() ->
     {ok, 
   "max_reduc - The number of reductions on an expression before pick_next.\n"++
-  "interrupt_steal - Default, but switches sched to use theif processes.\n"++
-  "shared_queue - Switches sched to use steal directly from other cores."
+  "max_batch - The max size a batch can be due to a spawned process.\n"++
+  "batch_replay - The number of times to replay batches before getting another.\n"++
+  "interrupt_steal - Default, switches scheduler to use theif process emulation.\n"++
+  "shared_queue - Switches scheduler to use steal directly from other cores."
     }.
 
 %% @hidden
@@ -181,17 +191,23 @@ options() ->
 make_state( Options ) ->
     {A,B,C} = erlang:now(), random:seed(A,B,C),
     MaxReducs = proplists:get_value( max_reduc, Options, ?MAX_REDUCS ),
+    MaxBatch = proplists:get_value( max_batch, Options, ?BATCH_SIZE_MAX ),
+    BatchReplay = proplists:get_value( batch_replay, Options, ?BATCH_REPLAY ),
     {ok, QueueID} = erlam_private_queue:start_link(),
     case proplists:get_value( shared_queue, Options, false ) of
         true -> % We chose to use a personal, but shared queue:
             TickFun = fun tick_shared_queue/2,
             {ok, #state{tick_fun=TickFun,
-                        procs=QueueID, 
+                        procs=QueueID,
+                        max_batch=MaxBatch,
+                        batch_replay=BatchReplay, 
                         max_reduc=MaxReducs}};
         false -> % We chose to use theif process emulation:
             TickFun = fun tick_interrupt_steal/2,
             {ok, #state{tick_fun=TickFun,
                         procs=QueueID,
+                        max_batch=MaxBatch,
+                        batch_replay=BatchReplay,
                         max_reduc=MaxReducs}}
     end.
 
@@ -223,13 +239,13 @@ pick_new_sq( #state{cur_proc=C,procs=Ps,loading_dock=LD,rounds=0} = State ) ->
     case enqueue_then_pop_push( C, LD, Ps ) of
         {ok, ProcessBatch} ->
             {ok, running, resetCur( ProcessBatch, State )};
-        false -> {ok, waiting, State#state{loading_dock=nil}}
+        false -> {ok, waiting, blankOut(State)}
     end;
 pick_new_sq( #state{cur_proc=nil,loading_dock=LD,rounds=R,procs=Ps}=State ) ->
     case queue:len( LD ) of
         0 -> 
             (case erlam_private_queue:pop( Ps ) of
-                 false -> {ok, waiting, State#state{loading_dock=nil}};
+                 false -> {ok, waiting, blankOut(State)};
                  {ok,NewLD} -> {ok, running, resetCur( NewLD, State )}
              end);
         _ -> 
@@ -266,7 +282,7 @@ steal_process_sq( State ) ->
 %%  look at private queue to update our current process, however ignore it
 %%  if we currently have nothing to do.
 %% @end
-pick_new_is( #state{cur_proc=nil} = State ) -> pick_new_sq( State );
+pick_new_is( #state{loading_dock=nil} = State ) -> pick_new_sq( State );
 pick_new_is( State ) -> pick_new_sq( check_for_theif( State ) ). 
 
 %% @hidden
@@ -306,7 +322,8 @@ steal_process_is( #state{ waiting=true } = State ) ->
         {ok, {spawn, nil}} ->
             {ok, waiting, State#state{waiting=false}};
         {ok, {spawn, ProcessBatch}} ->
-            {ok, running, resetCur(ProcessBatch, State)};
+            NewState = resetCur(ProcessBatch,State),
+            {ok, running, NewState#state{waiting=false}};
         _Other -> 
             {ok, waiting, State}
     end;
@@ -413,7 +430,15 @@ enqueue_then_pop_push( CurProc, LD, Ps ) ->
 %% @end
 resetCur( Batch, #state{ max_reduc=MR } = State ) ->
     {{value,Top},NewBatch} = queue:out(Batch),
-    Rounds = queue:len(Batch) *2,
+    Rounds = queue:len(Batch) * State#state.batch_replay,
     State#state{cur_proc=Top, cur_reduc=MR,
                 loading_dock=NewBatch, rounds=Rounds}.
+
+%% @hidden
+%% @doc Blanks out a state in the event of completely stolen processes or
+%%   when a large set of processes stop.
+%% @end
+blankOut( State ) ->
+    State#state{ cur_proc=nil, cur_reduc=0,
+                 loading_dock=nil, rounds=0 }.
 
