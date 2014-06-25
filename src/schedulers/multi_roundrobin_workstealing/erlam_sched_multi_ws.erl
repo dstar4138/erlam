@@ -89,7 +89,7 @@ tick_interrupt_steal( running, #state{cur_reduc=_} = S ) -> reduce( S ).
 %% @doc Returnsthe arguments to pass in to the scheduler as a direct printout.
 options() ->
     {ok, 
-  "max_reduc - The number of reductions on an expression before pick_next.i\n"++
+  "max_reduc - The number of reductions on an expression before pick_next.\n"++
   "interrupt_steal - Default, but switches sched to use theif processes.\n"++
   "shared_queue - Switches sched to use steal directly from other cores."
     }.
