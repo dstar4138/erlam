@@ -73,11 +73,22 @@ noerror_merge(Lib, CurDict) ->
 %% parser. (Lots of possible errors here.)
 %% @hidden
 -spec load_lib( string() ) -> {ok, dict()} | {error, Reason :: any()}.
-load_lib( Lib ) -> %Eww...
+load_lib( Lib ) ->
+    case parse_lib( Lib ) of
+        {ok, Dict} -> clean_lib( Dict );
+        {error, Reason} -> {error,Reason}
+    end.
+parse_lib( Lib ) -> %Eww...
     erlam_parser:parse(
         element(2, erlam_lexer:string( 
             erlang:binary_to_list( 
                     element(2, file:read_file(Lib)))))).
+clean_lib( Dict ) ->
+    try
+        Fun = fun({N,Exp}, Acc) -> [{N,replace_vars(Exp,Dict,[],[])}|Acc] end,
+        Lib = lists:foldl(Fun, [], dict:to_list(Dict)),
+        {ok, dict:from_list( Lib )}
+    catch _:Reason -> {error, Reason} end.
 
 
 %% Recurse on the erlam_exp, and when you come upon vars, try to replace them.

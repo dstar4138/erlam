@@ -19,21 +19,22 @@ elib
 
     // Pair, Tuples and Lists
     pair = fun x,y,f.(f x y);
-    head = fun p.(p fst);
-    tail = fun p.(p snd);
-    newlist = fun f.(f false false);
-    cons = fun x,l.(pair x l);
-    is_empty = fun l.(is_num (tail l));
-    count = fun l.(omega fun f,n,a.(if (is_empty n)
+    cons = fun x,l,f.(f x l);
+    head = fun p.(p (fun x,_.x));
+    tail = fun p.(p (fun _,y.y));
+    newlist = fun f.(f 0 0);
+    is_empty = fun l.(is_num (l (fun _,y.y)));
+    count = fun l.(omega fun f,n,a.(if (is_num (n (fun _,y.y)))
                                        a
                                        (f f (tail n) (inc a)))
                        l 0);
-    rev = fun f.(omega fun r,a,l.(if (is_empty l)
+    rev = fun f.(omega fun r,a,l.(if (is_num (l (fun _,y.y)))
                                       a
                                       (r r (cons (head l) a) tail l))
                        newlist);
-    map = fun f.(omega fun r,a,l.(if (is_empty l)
-                                      (rev a)
+    // Returns the list in reverse: call (rev (dirty_map l))
+    dirty_map = fun f.(omega fun r,a,l.(if (is_num (l (fun _,y.y)))
+                                      a
                                       (r r (cons (f (head l)) a) (tail l)))
                        newlist);
 
