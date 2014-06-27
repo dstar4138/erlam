@@ -262,6 +262,20 @@ elib
                 end
             };
 
+    // Perform X reductions
+    chug = _erl[1]{
+                fun(X) when is_integer(X) ->
+                    case X of
+                        _ when X < 0 -> 0;
+                        1 -> 1;
+                        _ -> lists:foldl( fun(_,Acc)->
+                                            erlam_lang:new_app(
+                                                erlam_lang:new_fun(nil_var,1),
+                                                Acc)
+                                          end, 1, lists:seq(1,X) )
+                    end
+                end
+            }; 
 
 /// NON DETERMINISTIC SECTION, THESE WILL REMOVE THE DERTERMINISTIC GAURANTEES.
 

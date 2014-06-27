@@ -6,7 +6,6 @@
 
 fun n.(
     let c = newchan in
-        let chug = fun n.(rep n id nil) in
         let server = (fun _.(omega fun s. 
                                     let r = (swap c nil)  in
                                     let dead = (eq r nil) in

@@ -267,8 +267,8 @@ step_erl( P, A, F, E, _Env ) ->
         case A of
             1 -> 
                 (case erlam_lang:is_value( Res ) of
-                     % Assert it is a valid Built-In. 
-                     true -> {stop, push_proc(P, Res)} 
+                     true -> {stop, push_proc(P, Res)};
+                     false -> {ok, push_proc(P, Res)}
                  end);
             _ -> 
                 Val = erlam_lang:new_erl( A-1, Res ),

@@ -32,7 +32,7 @@ new_app( E1, E2 ) ->
     end.
 
 %% @doc Make a new Erlam Function given an Erlam Variable and Expression.
-new_fun( V, E ) when is_record(V, erlam_var) ->
+new_fun( V, E ) when is_record(V, erlam_var) orelse V =:= nil_var ->
     case is_expression( E ) of
         true  -> #erlam_fun{ var = V, exp = E };
         false -> error(badexp)
@@ -58,7 +58,8 @@ is_expression( E )  when is_record(E, erlam_var)
                   orelse is_record(E, erlam_swap)
                   orelse is_record(E, erlam_chan)
                   orelse is_record(E, erlam_spawn)
-                  orelse is_record(E, erlam_app) 
+                  orelse is_record(E, erlam_app)
+                  orelse is_integer(E)
                   -> true;
 is_expression( _ )-> false.
 
