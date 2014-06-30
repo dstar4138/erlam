@@ -181,7 +181,9 @@ check_mq_loop( N, ForceHang ) ->
     after 
         Hang -> (case ForceHang of 
                      false -> false; 
-                     true -> check_mq( N, true ) 
+                     true ->
+                         timer:sleep(10), % Rapid successive calls are bad m'kay
+                         check_mq( N, true )
                  end)
     end.
 

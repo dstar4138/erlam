@@ -44,17 +44,18 @@ push( Process, Queue ) -> gen_server:cast( Queue, {push, Process} ).
 %%   not empty. If it's not it will get the top of the queue and push the
 %%   given to the bottom.
 %% @end
-pop_push( Process, Queue ) -> gen_server:call( Queue, {pushpop, Process} ).
+pop_push( Process, Queue ) ->
+    gen_server:call( Queue, {pushpop, Process}, infinity ).
 
 %% @doc Get the top of the quqeue.
-pop( Queue ) -> gen_server:call( Queue, pop ).
+pop( Queue ) -> gen_server:call( Queue, pop, infinity ).
 
 %% @doc Send a message to the work stealing queues to steal from a particular
 %%   one.
 %% @end
 steal( LPUID ) ->
     pg:send( ?WORK_STEALING_QUEUES, {steal, LPUID, self()} ),
-    receive OK -> OK end.
+    receive false -> false; {ok,_}=OK -> OK end.
 
 
 %%%===================================================================
