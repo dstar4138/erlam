@@ -23,6 +23,11 @@
    %% value it was swapped with, without spending a reduction.
    chan_val = nil :: term(),
 
+   %% The ID of the channel which just performed a communication. It will stay
+   %% the same until the next time it get's unblocked. Thus it is only valid
+   %% directly after it's returned in an {unblocked,NPs} message.
+   chan_id = nil :: term(), 
+
    %% The current continuation which represents the outer expression waiting
    %% for the current 'exp' to finish. 
    cont = [] :: [ fun() ],

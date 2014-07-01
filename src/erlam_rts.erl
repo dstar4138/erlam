@@ -332,7 +332,7 @@ rand_atom( V ) -> list_to_atom(atom_to_list(V)++"@").
 %%   term for comparisons/equality checks.
 %% @end
 gen_channel(P) ->
-    ChannelID = erlam_chan_serve:get_new_chan(),
+    ChannelID = erlam_chan_serve:get_new_chan( self() ),
     push_proc(P, erlam_lang:new_chan( ChannelID )).
 
 %% @hidden
@@ -344,6 +344,10 @@ parse_options( ["-h"|_Rest], _ ) -> usage(), halt(0);
 parse_options( ["-l"|_Rest], _ ) -> list_scheds(), halt(0); 
 parse_options( ["-a"|Rest], {Sched, Opts} ) ->
     UpOpts = orddict:store(absorption,true,Opts),
+    parse_options( Rest, {Sched, UpOpts} );
+parse_options( ["-p",Name|Rest], {Sched, Opts} ) ->
+    Value = verify_chanpin(Name),
+    UpOpts = orddict:store(chanpin,Value, Opts),
     parse_options( Rest, {Sched, UpOpts} );
 parse_options( ["-v"|Rest], {Sched, Opts} ) ->
     UpOpts = orddict:store(verbose, true, Opts),
@@ -368,6 +372,7 @@ usage() ->
         "Options:\n" ++
         "  -? | -h \t This help message.\n" ++
         "  -a\t\t Turn on channel absorption.\n" ++
+        "  -p PTYPE \t Turn on channel pinning given a type of mechanic.\n"++
         "  -v\t\t Turn on verbose runtime message.\n" ++
         "  -l\t\t List all possible schedulers and a short description.\n" ++
         "  -s SCHED \t Select a scheduler to run the program with.\n"++
@@ -392,6 +397,17 @@ is_value( Exp ) ->
     case erlam_lang:is_value( Exp ) of
         true  -> {true, Exp};
         false -> false
+    end.
+
+%% @hidden
+%% @doc Check to make sure the PTYPE entered is a channel pinning mechanic.
+verify_chanpin( Value ) ->
+    A = list_to_atom( Value ),
+    case lists:member( A, erlam_chan:pinning_types()) of
+        true -> A;
+        false -> 
+            io:format( erlam_chan:pinning_usage() ),
+            halt(1)
     end.
 
 %% @hidden

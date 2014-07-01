@@ -9,7 +9,7 @@
 -include("erlam_chan.hrl").
 
 %% API
--export([start/0, start/1, stop/0, get_new_chan/0]).
+-export([start/0, start/1, stop/0, get_new_chan/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -23,6 +23,12 @@
 %%  toggled on using a runtime flag.
 -define(DEFAULT_CHAN, erlam_chan_block).
 -define(ABSORB_CHAN, erlam_chan_absorb).
+
+%% Default Channel Pinning technique is 'none' as we do not pin the channel
+%% to a particular LPU when created and they are free to flow according to 
+%% usage.
+-define(DEFAULT_PINNING, none).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -36,7 +42,9 @@ start() ->
 -spec start( orddict:orddict() ) -> ok.
 start( Options ) -> 
     ChannelModule = get_channel_module( Options ),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [ChannelModule], []), 
+    ChannelPinning = get_channel_pinning( Options ),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [ChannelModule,
+                                                      ChannelPinning], []), 
     ok.
 
 %% @doc Stops the server and all swap channels safely.
@@ -44,25 +52,28 @@ start( Options ) ->
 stop() -> gen_server:cast(?MODULE, shutdown).
 
 %% @doc Ask server for a channel to swap on. They are multi-use. 
--spec get_new_chan() -> #chan{}.
-get_new_chan() -> gen_server:call(?MODULE, get_new_chan).
+-spec get_new_chan( pid() ) -> #chan{}.
+get_new_chan( PinProc ) -> 
+    ProcID = erlam_sched:get_id(), % Only valid if called by RTS.
+    gen_server:call(?MODULE, {get_new_chan, PinProc, ProcID}).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 %% Internal State
--record(state,{curid :: integer(), open_chans :: dict(), mod :: atom()}).
+-record(state,{curid :: integer(), open_chans :: dict(), 
+               mod :: atom(), pin :: atom(), pn :: integer()}).
 
 %% @private
 %% @doc Initializes the server
-init([Mod]) -> 
-    {ok, #state{curid=0, open_chans=dict:new(), mod=Mod}}.
+init([Mod,Pin]) -> 
+    {ok, #state{curid=0, open_chans=dict:new(), mod=Mod, pin=Pin, pn=0}}.
 
 %% @private
 %% @doc Handling synch call messages
-handle_call(get_new_chan, _From, S) ->
-    {NewChan, NS} = build_handler( S ),
+handle_call({get_new_chan, PinProc, ProcID}, _From, S) ->
+    {NewChan, NS} = build_handler( S, PinProc, ProcID ),
     {reply, NewChan, NS};
 handle_call(Request, _From, State) ->
     ?ERROR("Channel","Unknown Call: ~p",[Request]), 
@@ -103,13 +114,16 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%   process. It then adds this instance to the dictionary of open 
 %%   channels for later cleanup and possibly validity checking.
 %% @end  
-build_handler( #state{ curid=I, open_chans=M, mod=Mod } = S ) ->
+build_handler( #state{ curid=I, open_chans=M, mod=Mod, pin=P, pn=E } = S, 
+                                                           PinProc, ProcID ) ->
     NewChan = #chan{ id=I, mod=Mod },
-    case erlam_chan:start_link( NewChan ) of
-        {ok, BuiltChan} ->
+    case erlam_chan:start_link( NewChan, P, {ProcID, E} ) of
+        {ok, BuiltChan} -> 
             CPID = BuiltChan#chan.cpid,
             NM = dict:store( I, CPID, M ),
-            NewState = S#state{ curid=I+1, open_chans=NM },
+            NewState = S#state{ curid=I+1, open_chans=NM, 
+                                pn=up_pn(E, BuiltChan) },
+            alert_builder( PinProc, BuiltChan ),
             {BuiltChan, NewState};
         Error ->
             ?ERROR("Channel","Error building channel: ~p",[Error])
@@ -131,4 +145,34 @@ get_channel_module( OrdDict ) ->
         {ok, true} -> ?ABSORB_CHAN;
          _ -> ?DEFAULT_CHAN
     end.
+
+%% @hidden
+%% @doc 
+get_channel_pinning( OrdDict ) -> 
+    case orddict:find( chanpin, OrdDict ) of
+        {ok, Value} -> Value;
+        _ -> ?DEFAULT_PINNING
+    end.
+
+%% @hidden
+%% @doc Determine the next LPU to distribute the new channel to, ignoring
+%%   factors of frequency and usage.
+%% @end
+up_pn( E, #chan{pin=nil} ) -> E;
+up_pn( E, #chan{pin=E} ) -> 
+    IDs = erlam_sched:get_ids(),
+    next_in_line(hd(IDs), E, IDs);
+up_pn( E, #chan{pin=_} ) -> E.
+next_in_line(H, _, [] ) -> H;
+next_in_line(_, E, [E,N|_] ) -> N;
+next_in_line(H, E, [E]) -> H;
+next_in_line(H, E, [_|R])->next_in_line(H,E,R).
+
+
+%% @hidden
+%% @doc Alert the scheduler who caused the channel to be built. This may have
+%%   consequences for the process depending on the scheduler selection.
+%% @end
+alert_builder( PinProc, NewChannel ) ->
+    PinProc ! {new_channel, NewChannel}.
 

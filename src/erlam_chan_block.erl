@@ -45,6 +45,10 @@ handle_cast(Msg, State) ->
 
 
 %%% gen_server default callbacks, we do not use the following %%%
+handle_info({scheduler,ID,Reply}, State) ->
+    process_flag( scheduler, ID ),
+    Reply!{ok, self()},
+    {noreply, State};
 handle_info(_Info, State) -> {noreply, State}.
 terminate(_Reason, _State) ->  ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.

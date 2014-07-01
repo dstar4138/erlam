@@ -13,7 +13,7 @@
 -export([push/2, 
          pop/1,
          pop_push/2,
-         steal/1]).
+         steal/1, steal_by_op/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -57,6 +57,9 @@ steal( LPUID ) ->
     pg:send( ?WORK_STEALING_QUEUES, {steal, LPUID, self()} ),
     receive false -> false; {ok,_}=OK -> OK end.
 
+steal_by_op( LPUID, Op ) ->
+    pg:send( ?WORK_STEALING_QUEUES, {stealop, LPUID, Op, self()} ),
+    receive false -> false; {ok,_}=OK -> OK end.
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -122,6 +125,29 @@ handle_info( {pg_message, _, ?WORK_STEALING_QUEUES, {steal, LPUID, From}},
                  end);
         false -> {noreply, State} %ignore
     end;
+handle_info( {pg_message, _, ?WORK_STEALING_QUEUES, {stealop, LPUID, Op,  From}},
+             #state{lpuid=MyLPU, rdyq=Q} = State ) ->
+    case MyLPU == LPUID of
+        true -> 
+            QL = queue:to_list( Q ),
+            Total = length( QL ),
+            (case Total of 
+                0 ->
+                    From!false,
+                    {noreply, State};
+                _ ->
+                    {Ps, Rest} = run_op( Total, Op, QL ),
+                    (case Ps of
+                        [] -> 
+                            From!false,
+                            {noreply, State};
+                        _ -> 
+                            From!{ok,Ps},
+                            {noreply, State#state{rdyq=queue:from_list(Rest)}}
+                    end)
+             end);
+        false -> {noreply, State} %ignore
+    end;
 handle_info( _Msg, State ) -> 
     {noreply, State}. %ignore other pg_message
 
@@ -144,4 +170,17 @@ join_pg( Group ) ->
         Err -> Err
     end.
 
+%% @hidden
+%% @doc Run a 'steal' operation over the list of local processes. The operation
+%%   can choose when to leave early, but this operation at worst is linear, and
+%%   can therefore be quite poor.
+%% @end
+run_op( Total, Op, List ) -> run_op(Total, Op, 0, [], [], List).
+run_op( _, _, _, Ps, Rs, [] ) -> {Ps, lists:reverse(Rs)};
+run_op( T, O, S, Ps, Rs, [H|L] ) ->
+    case catch O( T, S, H ) of
+        true  -> run_op( T, O, S+1, [H|Ps], Rs,     L );
+        false -> run_op( T, O, S,   Ps,     [H|Rs], L );
+        _stop -> {Ps, lists:reverse(Rs)++L}
+    end.
 

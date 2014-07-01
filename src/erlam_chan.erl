@@ -11,7 +11,9 @@
 -include("process.hrl").
 
 %% API
--export([ start_link/1, swap/3, valid/1, stop/1 ]).
+-export([ start_link/3, swap/3, valid/1, stop/1 ]).
+%% PRIVATE
+-export([ pinning_types/0, pinning_usage/0 ]).
 
 %% When logging the state of the channel, the LPU has no meaning so we 
 %% use it for talking about the Channel ID instead. There are two states
@@ -27,12 +29,15 @@
 %%%===================================================================
 
 %% @doc Starts the channel server and will return it once started.
--spec start_link( channel() ) -> {ok, channel()} | {error, any()}.
-start_link( #chan{ id=ID, mod=MODULE } = Chan ) -> 
+-spec start_link( channel(), atom(), tuple() ) -> {ok, channel()} 
+                                                | {error, any()}.
+start_link( #chan{ id=ID, mod=MODULE } = Chan, PinType, ProcIDs) ->
     case 
         gen_server:start_link( MODULE, [ ID ], [] )
     of
-        {ok, Pid} -> {ok, Chan#chan{cpid=Pid}};
+        {ok, Pid} -> 
+            Pinning = process_channel_pinning( Pid, PinType, ProcIDs ),
+            {ok, Chan#chan{cpid=Pid, pin=Pinning}};
         Error -> Error
     end.
 
@@ -51,7 +56,8 @@ swap( #chan{id=ID, cpid=CPID}, Exp, #process{proc_id=PID} = Process ) ->
             {blocked, set_state( blocked, Blocked )};
         {unblocked, Unblocked} -> 
             ?STATE_LOG_UNBLOCK(ID, PID),
-            {unblocked, set_state( running, Unblocked )}
+            Marked = mark( ID, Unblocked ),
+            {unblocked, set_state( running, Marked )}
     end.
 
 %% @doc Checks to make sure it is a valid 
@@ -63,6 +69,25 @@ valid( _ ) -> false.
 -spec stop( channel() ) -> ok.
 stop(#chan{cpid=PID}) -> 
     gen_server:cast(PID, shutdown).
+
+
+%%% =========================================================================
+%%% Private API
+%%% =========================================================================
+
+%% @private
+%% @doc Return a list of Channel pinning techniques for use in erlam_rts.
+pinning_types() -> [none, same, even].%, freq].
+
+%% @private
+%% @doc Return a display message describing the provided pinning techniques.
+pinning_usage() -> 
+    "Channel Pinning Types (PTYPE):~n"++
+    "none - (DEFAULT) Do not pin a channel to an LPU upon creation.~n"++
+    "same - Pin the channel to the LPU which it was created on.~n"++
+    "even - Pin the channel successively accross each running scheduler.~n"++
+    "freq - Pin according to lpu usage by channel frequency (NOT IMPLEMENTED).~n".
+
 
 %%% =========================================================================
 %%% Private Functionality
@@ -89,3 +114,33 @@ remove_non_ints([_|R],A)->remove_non_ints(R,A).
 %% @doc Maintain order of processes, but update their blocked/running state.
 set_state( _, [] ) -> [];
 set_state( S, [H|T] ) -> [H#process{state=S}|set_state(S,T)].
+
+%% @hidden
+%% @doc Check whether we need to perform channel pinning by looking at the 
+process_channel_pinning( ChannelPid, PinType, {ProcID, EvenID} ) ->
+    case PinType of
+        none -> nil;
+        same -> do_pin( ProcID, ChannelPid ), ProcID;
+        even -> do_pin( EvenID, ChannelPid ), EvenID;
+        freq -> 
+            % TODO: Implement!
+            do_pin( EvenID, ChannelPid ), EvenID
+    end.
+        
+%% @hidden
+%% @doc Pin the channel to the particular Erlam Scheduler. This is how we do 
+%%   LPU pinning as all schedulers have been pinned separately to different 
+%%   processors.
+%% @end
+do_pin( SchedulerID, ChannelPid ) -> 
+    ChannelPid!{scheduler, SchedulerID, self()},
+    receive {ok, ChannelPid} -> ok end.
+
+%% @hidden
+%% @doc Quickly mark all returned processes with the name of the channel it
+%%  just communicated with. Some schedulers may need this information for more
+%%  detailed evaluation.
+%% @end
+mark( _, [] ) -> [];
+mark( ID, [P|R] ) -> [ P#process{chan_id=ID} | mark( ID, R ) ].
+
