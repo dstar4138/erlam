@@ -53,25 +53,16 @@ cleanup( _State ) -> ok.
 %%  State and runs it with the given function.
 %% @end
 %% @see longbatcher_preempts
-tick( S, T ) -> case catch stick(S,T) of
-                    {'EXIT',_}=E -> ?DEBUG("~p~n",[E]), {error, bad};
-                    OK -> %timer:sleep(10),
-                        OK
-                end.
-stick( startup, #state{preempt_fun=F}=State ) -> F( startup, State );
-stick( waiting, #state{steal_fun=F}=State ) -> F( State );
-stick( running, #state{cur_reduc=0, preempt_fun=F}=State ) -> F(running, State);
-stick( running, State ) -> reduce( State ).
+tick( startup, #state{preempt_fun=F}=State ) -> F( startup, State );
+tick( waiting, #state{steal_fun=F}=State ) -> F( State );
+tick( running, #state{cur_reduc=0, preempt_fun=F}=State ) -> F(running, State);
+tick( running, State ) -> reduce( State ).
 
 %% @doc Catch the event when we are primary and get first process. 
 %%  Alternatively call the user-specified spawn function.
 %% @end
 %% @see longbatcher_spawns
-spawn_process( P, S ) -> case catch sspawn_process(P,S) of
-                             {'EXIT',_}=E -> ?DEBUG("S: ~p~n",[E]), {error,bad};
-                             OK -> OK
-                        end.
-sspawn_process( Process, #state{cur_proc=nil, loading_dock=OldBatch}=State ) ->
+spawn_process( Process, #state{cur_proc=nil, loading_dock=OldBatch}=State ) ->
     %% The scheduler currently has no process. Either waiting on a steal, 
     %% or in start up mode, or has an empty batch due to process absorption. 
     %% We reset the old batch with this new process.
@@ -83,7 +74,7 @@ sspawn_process( Process, #state{cur_proc=nil, loading_dock=OldBatch}=State ) ->
                       loading_dock = NewBatch,
                       rounds = Rounds,
                       waiting = false }};
-sspawn_process( P, #state{spawn_fun=Spawn}=S ) -> Spawn( P, S ).
+spawn_process( P, #state{spawn_fun=Spawn}=S ) -> Spawn( P, S ).
 
 %%% ==========================================================================
 %%% Optional ErLam Scheduler API
