@@ -233,6 +233,7 @@ steal_process_is( State ) ->
 check_for_theif( State ) ->
     case erlam_sched:check_mq() of
         false -> ok; % ignore
+        {ok, {channel_pinning,_}} -> ok; %ignore
         {ok, {spawn, nil}} -> ok; % ignore
         {ok, {spawn, Process}} -> % add process to queue 
             ok = erlam_private_queue:push( Process, State#state.procs );

@@ -332,7 +332,8 @@ rand_atom( V ) -> list_to_atom(atom_to_list(V)++"@").
 %%   term for comparisons/equality checks.
 %% @end
 gen_channel(P) ->
-    ChannelID = erlam_chan_serve:get_new_chan( self() ),
+    SelfID = erlam_sched:get_id(),
+    ChannelID = erlam_chan_serve:get_new_chan( SelfID ),
     push_proc(P, erlam_lang:new_chan( ChannelID )).
 
 %% @hidden

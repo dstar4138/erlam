@@ -157,6 +157,7 @@ enqueue_then_pop_push( CurProc, LD, Ps ) ->
 check_for_thief( State ) ->
     case erlam_sched:check_mq( false ) of % Override messaging
         false -> State; % ignore
+        {ok, {channel_pinning,_}} -> State; %ignore
         {ok, {spawn, nil}} -> State; % ignore
         {ok, {spawn, Process}} -> % add process to queue 
             ?resetCur( Process, State );

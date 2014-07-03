@@ -135,6 +135,7 @@ broadcast( Message ) ->
 %% @doc Message a particular scheduler on a process ID. This could be useful 
 %%   for passing a process between servers.
 %% @end  
+send( undefined, _ ) -> ok; % To handle shell events which don't rely on ProcID
 send( ProcID, Message ) ->
     pg:esend( ?SCHEDULER_GROUP, {sched_msg, ProcID, Message}).
 

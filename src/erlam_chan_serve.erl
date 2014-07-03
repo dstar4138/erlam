@@ -36,7 +36,9 @@
 %% @doc Starts the server.
 -spec start() -> ok.
 start() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [?DEFAULT_CHAN], []), ok.
+    gen_server:start_link({local, ?MODULE}, ?MODULE, 
+                          [?DEFAULT_CHAN, none], []), 
+    ok.
 
 %% @doc Starts the server.
 -spec start( orddict:orddict() ) -> ok.
@@ -52,10 +54,9 @@ start( Options ) ->
 stop() -> gen_server:cast(?MODULE, shutdown).
 
 %% @doc Ask server for a channel to swap on. They are multi-use. 
--spec get_new_chan( pid() ) -> #chan{}.
-get_new_chan( PinProc ) -> 
-    ProcID = erlam_sched:get_id(), % Only valid if called by RTS.
-    gen_server:call(?MODULE, {get_new_chan, PinProc, ProcID}).
+-spec get_new_chan( integer() ) -> #chan{}.
+get_new_chan( ProcID ) -> 
+    gen_server:call(?MODULE, {get_new_chan, ProcID}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -72,8 +73,8 @@ init([Mod,Pin]) ->
 
 %% @private
 %% @doc Handling synch call messages
-handle_call({get_new_chan, PinProc, ProcID}, _From, S) ->
-    {NewChan, NS} = build_handler( S, PinProc, ProcID ),
+handle_call({get_new_chan, ProcID}, _From, S) ->
+    {NewChan, NS} = build_handler( S, ProcID ),
     {reply, NewChan, NS};
 handle_call(Request, _From, State) ->
     ?ERROR("Channel","Unknown Call: ~p",[Request]), 
@@ -115,7 +116,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%   channels for later cleanup and possibly validity checking.
 %% @end  
 build_handler( #state{ curid=I, open_chans=M, mod=Mod, pin=P, pn=E } = S, 
-                                                           PinProc, ProcID ) ->
+                                                                    ProcID ) ->
     NewChan = #chan{ id=I, mod=Mod },
     case erlam_chan:start_link( NewChan, P, {ProcID, E} ) of
         {ok, BuiltChan} -> 
@@ -123,7 +124,6 @@ build_handler( #state{ curid=I, open_chans=M, mod=Mod, pin=P, pn=E } = S,
             NM = dict:store( I, CPID, M ),
             NewState = S#state{ curid=I+1, open_chans=NM, 
                                 pn=up_pn(E, BuiltChan) },
-            alert_builder( PinProc, BuiltChan ),
             {BuiltChan, NewState};
         Error ->
             ?ERROR("Channel","Error building channel: ~p",[Error])
@@ -167,12 +167,4 @@ next_in_line(H, _, [] ) -> H;
 next_in_line(_, E, [E,N|_] ) -> N;
 next_in_line(H, E, [E]) -> H;
 next_in_line(H, E, [_|R])->next_in_line(H,E,R).
-
-
-%% @hidden
-%% @doc Alert the scheduler who caused the channel to be built. This may have
-%%   consequences for the process depending on the scheduler selection.
-%% @end
-alert_builder( PinProc, NewChannel ) ->
-    PinProc ! {new_channel, NewChannel}.
 

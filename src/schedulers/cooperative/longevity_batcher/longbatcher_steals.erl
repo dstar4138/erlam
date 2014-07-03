@@ -40,6 +40,8 @@ interrupt_steal( #state{ waiting=true } = State ) ->
         {ok, {spawn, ProcessBatch}} ->
             NewState = ?resetCur(ProcessBatch,State),
             {ok, running, NewState#state{waiting=false}};
+        {ok, {channel_pinning,_}} -> 
+            {ok, waiting, State}; % IGNORE
         Other ->
            ?DEBUG("Steal resulted in unknown response: ~p~n",[Other]), 
             {ok, waiting, State}

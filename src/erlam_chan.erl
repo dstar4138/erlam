@@ -36,7 +36,7 @@ start_link( #chan{ id=ID, mod=MODULE } = Chan, PinType, ProcIDs) ->
         gen_server:start_link( MODULE, [ ID ], [] )
     of
         {ok, Pid} -> 
-            Pinning = process_channel_pinning( Pid, PinType, ProcIDs ),
+            Pinning = process_channel_pinning( Pid, PinType, ProcIDs, Chan ),
             {ok, Chan#chan{cpid=Pid, pin=Pinning}};
         Error -> Error
     end.
@@ -117,14 +117,16 @@ set_state( S, [H|T] ) -> [H#process{state=S}|set_state(S,T)].
 
 %% @hidden
 %% @doc Check whether we need to perform channel pinning by looking at the 
-process_channel_pinning( ChannelPid, PinType, {ProcID, EvenID} ) ->
+process_channel_pinning( ChannelPid, PinType, {ProcID, EvenID}, Chan ) ->
     case PinType of
-        none -> nil;
-        same -> do_pin( ProcID, ChannelPid ), ProcID;
-        even -> do_pin( EvenID, ChannelPid ), EvenID;
+        none -> % Alert scheduler even without LPU pinning
+            erlam_sched:send( ProcID, {channel_pinning, Chan}),
+            nil;
+        same -> do_pin( ProcID, ChannelPid, Chan ), ProcID;
+        even -> do_pin( EvenID, ChannelPid, Chan ), EvenID;
         freq -> 
             % TODO: Implement!
-            do_pin( EvenID, ChannelPid ), EvenID
+            do_pin( EvenID, ChannelPid, Chan ), EvenID
     end.
         
 %% @hidden
@@ -132,8 +134,9 @@ process_channel_pinning( ChannelPid, PinType, {ProcID, EvenID} ) ->
 %%   LPU pinning as all schedulers have been pinned separately to different 
 %%   processors.
 %% @end
-do_pin( SchedulerID, ChannelPid ) -> 
+do_pin( SchedulerID, ChannelPid, Channel ) -> 
     ChannelPid!{scheduler, SchedulerID, self()},
+    erlam_sched:send( SchedulerID, {channel_pinning, Channel}),
     receive {ok, ChannelPid} -> ok end.
 
 %% @hidden

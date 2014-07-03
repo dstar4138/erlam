@@ -14,6 +14,7 @@
 -export([ options/0 ]).
 
 %% Process inspection operations:
+-include("erlam_chan.hrl").
 -include("chanpin_state.hrl").
 
 %%% ==========================================================================
@@ -68,9 +69,7 @@ spawn_process( P, #state{spawn_fun=Spawn}=S ) -> Spawn( P, S ).
 %% @doc Returnsthe arguments to pass in to the scheduler as a direct printout.
 options() ->
     {ok, 
-  "max_reduc - The number of reductions on an expression before pick_next.\n"++
-  "pushback_batcher - Keep the spawning process with the newly spawned "++
-        "process during batch overflow."
+  "max_reduc - The number of reductions on an expression before pick_next."
     }.
 
 %% @hidden
@@ -101,7 +100,9 @@ build_functionality( _Options ) -> % TODO: Only one currently.
 %% @doc Perform a reduction.
 reduce( #state{ cur_proc=P, cur_reduc=R, yield_fun=Yield } = State ) ->
     case erlam_rts:safe_step(P) of
-        {ok,NP} -> {ok, running, State#state{ cur_proc=NP, cur_reduc=R-1 }}; 
+        {ok,NP} -> 
+            NewState = check_newchan( State ),
+            {ok, running, NewState#state{ cur_proc=NP, cur_reduc=R-1 }}; 
         {stop,NP} -> check_on_stop( NP, State );
         {blocked, NPs} -> Yield( blocked, NPs, State ); 
         {unblocked, NPs} -> Yield( unblocked, NPs, State );
@@ -123,5 +124,18 @@ check_on_stop( Process, State ) ->
         %% If it finished and was not primary, then drop it and move to next
         false ->
             {ok, running, State#state{ cur_proc=nil, cur_reduc=0 }}
+    end.
+
+%% @hidden
+%% @doc In the event of a channel pinning message from the RTS we need
+%%   to update our pinned channels set to keep track.
+%% @end
+check_newchan( #state{pins=Ps} = State ) ->
+    case erlam_sched:check_mq() of
+        {ok, {channel_pinning, Channel}} ->
+            ChanID = Channel#chan.id,
+            ?DEBUG("PIN: ~p~n",[ChanID]),
+            State#state{ pins=sets:add_element(ChanID, Ps) };
+        _Other -> State
     end.
 

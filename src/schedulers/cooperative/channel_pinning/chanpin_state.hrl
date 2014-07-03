@@ -11,7 +11,7 @@
  pins = sets:new(),
 
 % Current Scheduler Configuration. 
- procs = nil, % Reference to personal Queue-of-Queues.
+ procs = nil, % Reference to personal queue
  max_reduc = ?MAX_REDUCS, % User defined max reductions per process execution.
 
 % Scheduler Function References
