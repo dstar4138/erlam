@@ -34,8 +34,10 @@ setup( RTSOptions, Expression ) ->
     erlam_chan_serve:start( StateOpts ),
     %% Start the Runtime Monitor, useful for global information gathering.
     erlam_state:start( SchedOpts++StateOpts ),
+    % Wrap Expression with passed in Argument Values
+    AppliedExpression = apply_arguments( Expression, StateOpts ),
     %% Intitialize the Schedulers and send the initial expression.
-    erlam_sched:run( SchedOpts, Expression ).
+    erlam_sched:run( SchedOpts, AppliedExpression ).
 
 %% @doc Shutdown channel server, and schedulers.
 -spec breakdown() -> ok | {error, Reason :: any()}.
@@ -86,6 +88,11 @@ safe_hang( X ) ->
 %%%===================================================================
 %%% Private functionality
 %%%===================================================================
+
+apply_arguments( Expression, Opts ) ->
+    Args = proplists:get_value(arguments,Opts,[]),
+    Fun = fun(Var,Exp) -> erlam_lang:new_app(Exp, Var) end,
+    lists:foldl( Fun, Expression, Args ).
 
 %% @hidden
 %% @doc Update a process with either a new expression or a both an expression
@@ -337,12 +344,25 @@ gen_channel(P) ->
     push_proc(P, erlam_lang:new_chan( ChannelID )).
 
 %% @hidden
+%% @doc Attempt a conversion from List (string) to integer. Halt if otherwise.
+ltoi( L ) ->
+    try list_to_integer( L )
+    catch 
+        _ -> io:format("ERROR: Can only pass in integers via args!"),
+             halt(1)
+    end.
+
+%% @hidden
 %% @doc Parse the command line options passed into the compiled program.
 parse_options( Opts ) -> parse_options( Opts, ?DEFAULT_RTS ).
 parse_options( [], RTS ) -> RTS;
 parse_options( ["-?"|_Rest], _ ) -> usage(), halt(0);
 parse_options( ["-h"|_Rest], _ ) -> usage(), halt(0);
 parse_options( ["-l"|_Rest], _ ) -> list_scheds(), halt(0); 
+parse_options( ["-r",ARGS|Rest], {Sched, Opts} ) -> 
+    A = lists:map( fun ltoi/1, string:tokens( ARGS, "," ) ), 
+    UpOpts = orddict:store(arguments,A,Opts),
+    parse_options( Rest, {Sched, UpOpts} );
 parse_options( ["-a"|Rest], {Sched, Opts} ) ->
     UpOpts = orddict:store(absorption,true,Opts),
     parse_options( Rest, {Sched, UpOpts} );
@@ -372,6 +392,7 @@ usage() ->
         "usage: "++EXEC++" [options] -- [scheduler_options]\n"++
         "Options:\n" ++
         "  -? | -h \t This help message.\n" ++
+        "  -r ARGS\t\t Run Script applied with ARGS, separate w/ commas.\n"++
         "  -a\t\t Turn on channel absorption.\n" ++
         "  -p PTYPE \t Turn on channel pinning given a type of mechanic.\n"++
         "  -v\t\t Turn on verbose runtime message.\n" ++

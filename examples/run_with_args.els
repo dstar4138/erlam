@@ -1,0 +1,7 @@
+// Note, this will just return itself, unless you run like so:
+//          ./examples/run_with_args.ex -r 1,2,3
+// At which point it will apply, those parameters in an uncurried fashion:
+//          ((((fun A,B,C.E) 1) 2 ) 3)
+
+// Add Three Values:
+fun A,B,C.(add A (add B C))
