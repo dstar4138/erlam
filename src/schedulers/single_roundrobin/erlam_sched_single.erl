@@ -124,7 +124,7 @@ reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=Ps } = State ) ->
         %% to zero (ignoring what they were before). Will push the process to
         %% the end of the queue.
             {ok, running, State#internal_state{ cur_proc=NP, cur_reduc=0 }};
-        {error, Reason} -> exit( Reason ) % Won't handle errors
+        {error, Reason} -> erlam_sched:error( Reason ) % Won't handle errors
     end.
 check_on_stop( Process, State ) ->
     case ?is_primary( Process ) of

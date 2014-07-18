@@ -108,7 +108,7 @@ reduce( #state{ cur_proc=P, cur_reduc=R } = State ) ->
             {ok, running, State#state{ cur_proc=H, cur_reduc=R-1 }};
         {hang, NP} -> %Ignore, but reschedule 
             {ok, running, State#state{ cur_proc=NP, cur_reduc=0 }};
-        {error, Reason} -> exit( Reason )
+        {error, Reason} -> erlam_sched:error( Reason )
     end.
 
 %% @hidden

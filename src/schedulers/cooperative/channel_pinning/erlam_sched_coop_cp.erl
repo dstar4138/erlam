@@ -108,7 +108,7 @@ reduce( #state{ cur_proc=P, cur_reduc=R, yield_fun=Yield } = State ) ->
         {unblocked, NPs} -> Yield( unblocked, NPs, State );
         {hang, NP} -> %Ignore
             {ok, running, State#state{ cur_proc=NP, cur_reduc=0 }};
-        {error, Reason} -> exit( Reason ) % Won't handle errors
+        {error, Reason} -> erlam_sched:error( Reason ) % Won't handle errors
     end.
 
 %% @hidden

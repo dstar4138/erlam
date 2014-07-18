@@ -133,7 +133,7 @@ reduce( #state{ curThread=T, curReduct=R } = State ) ->
             timer:sleep( Sleep ),
             {ok, running, State#state{ curThread=NP, curReduct=0 }};
         {error, Reason} ->
-            exit( Reason ) % Won't handle errors
+            erlam_sched:error( Reason ) % Won't handle errors
     end.
 check_on_stop( Process, State ) ->
     case ?is_primary( Process ) of

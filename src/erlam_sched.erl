@@ -22,7 +22,7 @@
 -export([run/2, spawn/2]).
 
 %PUBLIC 
--export([return/1]).
+-export([return/1,error/1]).
 -export([broadcast/1, send/2, check_mq/0, check_mq/1]).
 -export([get_id/0,get_ids/0,is_primary/0]).
 
@@ -206,6 +206,12 @@ is_primary() -> ( get(?PD_PRIMARYID) == get(?PD_LPU_ID) ).
 %% @doc Return the value of the process as the result of the computation.
 return( #process{ exp=Val, resrep=ResultAcceptor } ) 
     when is_pid( ResultAcceptor ) -> ResultAcceptor!{result,Val}.
+
+
+%% @doc Return error status code on bad op.
+error( Result ) ->
+    io:format("ERROR: ~p~n",[Result]),
+    halt(1).
 
 %%% ==========================================================================
 %%% Private Scheduler Process API

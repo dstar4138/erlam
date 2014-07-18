@@ -132,7 +132,7 @@ reduce( #state{ cur_proc=P, cur_reduc=R, procs=Ps } = State ) ->
             {ok, running, State#state{ cur_proc=H, cur_reduc=R-1 }};
         {hang, NP} -> %Ignore
             {ok, running, State#state{ cur_proc=NP, cur_reduc=0 }};
-        {error, Reason} -> exit( Reason ) % Won't handle errors
+        {error, Reason} -> erlam_sched:error( Reason ) % Won't handle errors
     end.
 check_on_stop( Process, State ) ->
     case ?is_primary( Process ) of
