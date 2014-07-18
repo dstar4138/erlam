@@ -68,9 +68,7 @@
 layout( Module, Topology, Options ) ->
     Opts = default_parse_opts( Options ), 
     % Count the number of LPU's on each branch of the Topology. 
-    Count = lists:foldl( fun(X,C)-> 
-                                 count_logical(X,0)+C 
-                         end, 0, Topology ),
+    Count = get_count( Topology, Opts ),
     % With the count, generate a list of sched_desc() for each LPU.
     % If LPU is 0, then it will set it as primary.
     Comps = lists:map( fun(N)-> 
@@ -90,6 +88,15 @@ default_parse_opts( Options ) ->
 %%% ==========================================================================
 %%% Private Functionality
 %%% ==========================================================================
+
+%% @private
+%% @doc Get the number of LPUs, but first check if we've limited it.
+get_count( Topology, Opts ) ->
+    MaxCount = lists:foldl( fun(X,C)-> count_logical(X,0)+C end, 0, Topology ),
+    case proplists:get_value( max_lpus, Opts, 0 ) of
+        P when P =< MaxCount andalso P > 0 -> P;
+        _ -> MaxCount
+    end.
 
 %% @private
 %% @doc The required functionality and their arity. The RTS checks the loaded
