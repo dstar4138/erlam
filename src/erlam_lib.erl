@@ -120,8 +120,9 @@ replace_vars( #erlam_if{exp=E,texp=T,fexp=F}, L,I,C)->
     #erlam_if{exp=replace_vars(E,L,I,C),
               texp=replace_vars(T,L,I,C),
               fexp=replace_vars(F,L,I,C)};
-replace_vars( E=#erlam_swap{ val=V }, L,I,C ) ->
-    E#erlam_swap{val=replace_vars(V,L,I,C )};
+replace_vars( E=#erlam_swap{ chan=H, val=V }, L,I,C ) ->
+    E#erlam_swap{ chan=replace_vars(H,L,I,C), 
+                  val=replace_vars(V,L,I,C )};
 replace_vars( #erlam_spawn{ exp=E }, L,I,C) ->
     #erlam_spawn{ exp=replace_vars(E,L,I,C)};
 replace_vars( E,_,_,_)-> E.

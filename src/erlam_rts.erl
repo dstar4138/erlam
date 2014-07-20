@@ -159,7 +159,7 @@ interstep( P, N, _ENV ) when is_integer( N ) -> {stop, P};
 interstep( P, #erlam_var{name=N}, ENV ) ->
     case lists:keyfind(N,1,ENV) of
         {N,V} -> {stop, push_proc(P,V)};
-        false -> {error, badvar} 
+        false -> {error, {badvar,N}} 
     end;
 interstep( P, #erlam_if{exp=E1,texp=E2,fexp=E3} = IF, ENV ) ->
     case is_value( E1 ) of
