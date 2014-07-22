@@ -62,7 +62,7 @@ swap( #chan{id=ID, cpid=CPID}, Exp, #process{proc_id=PID} = Process ) ->
 
 %% @doc Checks to make sure it is a valid 
 -spec valid( term() ) -> boolean().
-valid( Chan ) when is_record( Chan, chan ) -> true;
+valid( Chan ) when is_record( Chan, erlam_chan ) -> true;
 valid( _ ) -> false.
 
 %% @doc Shutdown the channel.
