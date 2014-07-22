@@ -305,6 +305,7 @@ hang_for_result() ->
 %%   It handles calling the 'step' function and handling process updates.
 %% @end  
 server_loop( PrevStatus, ImplState ) ->
+    erlang:garbage_collect(), % Explicit clean memory as schedulers never sleep.
     case internal_handle_msgs( ImplState ) of
         {stop, Updated1} -> 
             ?LOG_STATE(stopped),
