@@ -79,7 +79,11 @@ make_state( Options ) ->
     MaxReducs = proplists:get_value( max_reduc, Options, ?MAX_REDUCS ),
     {ok, QueueID} = bpgraph_serve:start_link(),
     State = build_functionality( Options ),
-    {ok, State#state{ procg=QueueID,
+    CountT = proplists:get_value( max_triggers, Options, ?MAX_COUNT ), 
+    ProcT = proplists:get_value( min_proc_threshold, Options, ?MIN_PROC_COUNT),
+    {ok, State#state{ trigger_threshold = CountT,
+                      min_proc_threshold = ProcT,
+                      procg=QueueID,
                       max_reduc=MaxReducs}}.
 
 build_functionality( _Options ) -> % TODO: Only one currently.

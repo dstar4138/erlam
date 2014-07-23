@@ -15,7 +15,7 @@
          did_comm/3,
          inc_count/1,
          get_count/1,
-         resort/2,
+         resort/3,
          popular_sigma/1]).
 
 %% gen_server callbacks
@@ -78,7 +78,8 @@ inc_count( Queue ) -> gen_server:cast( Queue, inc_count ).
 get_count( Queue ) -> gen_server:call( Queue, get_count ).
 
 %% @doc Trigger a resort (ONLY IF # of PROCESSES ARE ABOVE THRESHOLD!)
-resort( Threshold, Queue ) -> gen_server:call( Queue, {resort, Threshold} ).
+resort( CountThreshold, ProcThreshold, Queue ) ->
+    gen_server:call( Queue, {resort, CountThreshold, ProcThreshold} ).
 
 %% @doc Get the channels which are popular on the local processing unit.
 popular_sigma( Queue ) -> gen_server:call( Queue, popular_sigma ).
@@ -127,8 +128,8 @@ handle_call( pop, _From, #state{rdyq=Q,lpuid=LPU}=State ) ->
             ?LOG_QUEUE(LPU,0),
             {reply, false, State}
     end;
-handle_call( {resort, Threshold}, _From, #state{rdyq=Q}=State ) ->
-    case bpgraph:len(Q) >= Threshold of
+handle_call( {resort, CountT, ProcT}, _From, #state{rdyq=Q, counter=C}=State ) ->
+    case bpgraph:len(Q) >= ProcT andalso C >= CountT of
         true -> NQ = bpgraph:resort( Q ),
                 {reply, ok, State#state{rdyq=NQ, counter=0}};
         false -> {reply, ok, State#state{counter=0}}
@@ -196,7 +197,7 @@ perform_steal( From, nil, _, #state{rdyq=Q}=S ) -> % No channel specified
     {P, NQ} = bpgraph:out( Q ),
     case P of
         empty -> From!false;
-        _ -> From!{ok,[P]}
+        {value,Pi} -> From!{ok,[Pi]}
     end,
     {noreply, S#state{rdyq=NQ}};
 perform_steal( From, Sigma, Threshold, #state{rdyq=Q}=S ) ->

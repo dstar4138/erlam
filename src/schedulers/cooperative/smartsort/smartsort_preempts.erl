@@ -40,11 +40,9 @@ default( _Status, State ) ->
 %%  triggers since the last resort are above a threshold, and the number of 
 %%  processes currently in the queue are above a particular threshold as well.
 %% @end
-check_if_resort( #state{ threshold=T, min_proc_threshold=P, procg=G } ) ->
-    case bpgraph_serve:get_count( G ) >= T of
-        false -> ok; % No-Op
-        true -> bpgraph_serve:resort( P, G )
-    end.
+check_if_resort( #state{ trigger_threshold=T,
+                         min_proc_threshold=P,
+                         procg=G } ) -> bpgraph_serve:resort( T, P, G ).
 
 %% @hidden
 %% @doc Pick the next one off the process queue if there is one. If not and we

@@ -2,7 +2,7 @@
 -define(MAX_REDUCS, 20).
 
 % The default threshold for the number of triggers contributing to a resort.
--define(MAX_COUNT, 15).
+-define(MAX_COUNT, 5).
 
 % Minimum number of processes to allow for a resort.
 -define(MIN_PROC_COUNT, 10).
@@ -18,7 +18,7 @@
  max_reduc = ?MAX_REDUCS, % User defined max reductions per process execution.
 
 % Sorting Triggering.
- threshold = ?MAX_COUNT, % User defined max trigger for forcing resort.
+ trigger_threshold = ?MAX_COUNT, % User defined max trigger for forcing resort.
  min_proc_threshold = ?MIN_PROC_COUNT, % User defined min # of procs to resort.
 
 % Scheduler Function References

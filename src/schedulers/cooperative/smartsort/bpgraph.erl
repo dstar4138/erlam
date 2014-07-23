@@ -46,12 +46,12 @@ in( Pi, #bpgraph{rho=P}=G ) -> G#bpgraph{rho=queue:in(Pi, P)}.
 out( #bpgraph{rho=P, stolen=S}=G ) ->
     case queue:out(P) of
         {empty,_} -> {empty, G};
-        {Res,NP}  ->
+        {{value, Res},NP}  ->
             Ref_rhoi = Res#process.proc_id, %Check if process is on stolen list
             NG = G#bpgraph{rho=NP},
             case ordsets_prune( Ref_rhoi, S ) of
                 {true, NS} -> out( NG#bpgraph{stolen=NS} );
-                false -> {Res, NG}
+                false -> {{value, Res}, NG}
             end
     end.
 
@@ -95,7 +95,7 @@ resort( #bpgraph{rho=P, sortfun=F, edges=Es}=G ) ->
             [ { RhoiVal, Rho_i } | Counters ]
         end, [], Rhos ),
     {_, Sorted} = lists:unzip( lists:sort( RhoList ) ),
-    G#bpgraph{rho=Sorted}.
+    G#bpgraph{rho=queue:from_list(Sorted)}.
 
 %% @doc Add or Update an edge value between the Rho set (process queue) and the
 %%   Sigma set (channels).
