@@ -56,6 +56,14 @@
 -define(set_hangtime(P,T,H),P#process{hang={T,H}}).
 -define(get_timestamp(P),element(1,P#process.hang)).
 -define(get_hangfortime(P),element(2,P#process.hang)).
+-define(is_hanging(P),case P#process.hang of
+                          {nil,_} -> {false,P};
+                          {T,Sc} -> % NowDiff returns micro, Sc is milli
+                              case Sc*1000 >= timer:now_diff(os:timestamp(),T) of
+                                  true -> true;
+                                  false -> {false, P#process{hang={nil,nil}}}
+                              end
+                      end).
 
 -type erlam_process() :: #process{}.
 -type erlam_env() :: [{atom(),term()}].

@@ -120,9 +120,8 @@ reduce( #internal_state{ cur_proc=P, cur_reduc=R, procs=Ps } = State ) ->
                                                cur_reduc=0,
                                                procs=insert(Unblocked, Ps)}};
         {hang, NP} -> 
-        %% We are sleeping, so hang (stop the world style), and set reductions
-        %% to zero (ignoring what they were before). Will push the process to
-        %% the end of the queue.
+        %% We are sleeping, so set reductions to zero (ignoring what they 
+        %% were before). Will push the process to the end of the queue.
             {ok, running, State#internal_state{ cur_proc=NP, cur_reduc=0 }};
         {error, Reason} -> erlam_sched:error( Reason ) % Won't handle errors
     end.

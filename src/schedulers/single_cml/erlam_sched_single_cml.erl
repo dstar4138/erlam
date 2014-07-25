@@ -126,12 +126,9 @@ reduce( #state{ curThread=T, curReduct=R } = State ) ->
         {unblocked, NPs} -> 
              {ok, NewState} = yield( NPs, State ),
             {ok, running, NewState};
-        {hang, NP, Sleep} ->
-        %% We are sleeping, so hang (stop the world style), and set reductions
-        %% to zero (ignoring what they were before). Will push the process to
-        %% the end of the queue.
-            timer:sleep( Sleep ),
-            {ok, running, State#state{ curThread=NP, curReduct=0 }};
+        {hang, NP} -> % Treat user-bound processes like blocked channels.
+            {ok, NewState} = yield( [NP], State ),
+            {ok, running, NewState};
         {error, Reason} ->
             erlam_sched:error( Reason ) % Won't handle errors
     end.

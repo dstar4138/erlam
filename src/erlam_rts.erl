@@ -70,13 +70,17 @@ safe_spawn( Fun, ENV ) ->
     | {unblocked, [erlam_process()]} % When swap returns successful
     | {hang, erlam_process()}        % When process asks for reschedule
     | {error, any()}.                % On unsuccessful step, error not handled
-safe_step( #process{ exp=F, env=E } = P ) ->
-%    ?DEBUG("STEPPING: ~p~n",[F]),
-    case step( P, F, E ) of
-        {ok,_}=Ret -> erlam_state:note( reduction ), Ret;
-        {blocked,_}=Ret -> erlam_state:note( yield ), Ret;
-        {unblocked,_}=Ret -> erlam_state:note( yield ), Ret;
-        Ret -> Ret
+safe_step( P ) ->
+%    ?DEBUG("STEPPING(~p): ~p~n",[P#process.proc_id,P#process.exp]),
+    case ?is_hanging( P ) of
+        true -> {hang, P};
+        {false, #process{exp=F, env=E}=NP} -> % Removed hang from process. 
+            case step( NP, F, E ) of
+                {ok,_}=Ret -> erlam_state:note( reduction ), Ret;
+                {blocked,_}=Ret -> erlam_state:note( yield ), Ret;
+                {unblocked,_}=Ret -> erlam_state:note( yield ), Ret;
+                Ret -> Ret
+            end
     end.
 
 %% @doc Put the process to sleep in the scheduler for at least X seconds.
